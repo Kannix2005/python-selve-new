@@ -2,7 +2,7 @@ import protocol
 import base64
 from selve.util.protocol import *
 
-class Command:
+class Command():
     def __init__(self, method_name, parameters = []) -> None:
         self.method_name = method_name
         self.parameters = parameters
@@ -23,6 +23,23 @@ class Command:
     def execute(self):
         pass
 
+class GatewayCommand(Command):
+
+    def __init__(self, method_name, parameters = []):
+         super().__init__("selve.GW." + method_name.value, parameters)
+
+class CommandSingle(Command):
+
+    def __init__(self, method_name, iveoID):
+        super().__init__(method_name, [(ParameterType.INT, iveoID)])
+
+class CommandMask(Command):
+
+    def __init__(self, method_name, mask, command):
+        super().__init__(method_name, [(ParameterType.BASE64, mask), (ParameterType.INT, command.value)])
+
+class Util():
+    
     def singlemask(self, id):
         #Obtains a base64 encoded to modify just one index
         mask =  64 * [0]
@@ -59,23 +76,6 @@ class Command:
 
     def intToBoolarray(self, value):
         return [bool(bit) for bit in '{0:10b}'.format(value)]
-
-class GatewayCommand(Command):
-
-    def __init__(self, method_name, parameters = []):
-         super().__init__("selve.GW." + method_name.value, parameters)
-
-class CommandSingle(Command):
-
-    def __init__(self, method_name, iveoID):
-        super().__init__(method_name, [(ParameterType.INT, iveoID)])
-
-class CommandMask(Command):
-
-    def __init__(self, method_name, mask, command):
-        super().__init__(method_name, [(ParameterType.BASE64, mask), (ParameterType.INT, command.value)])
-
-
 
 from enum import Enum
 
