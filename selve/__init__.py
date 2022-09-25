@@ -1,11 +1,17 @@
+from ast import Or
 import asyncio
+from itertools import chain
 import logging
 import queue
+from time import time
+from selve.util import CommeoCommandResult, CommeoDeviceEventResponse, DutyCycleResponse, ErrorResponse, LogEventResponse, MethodResponse, ResponseType, SenderEventResponse, SensorEventResponse, Util
 #import nest_asyncio
 from selve.util.commandFactory import Command
+from selve.util.protocol import ParameterType
 import serial_asyncio
 import serial
 import aioconsole
+import untangle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +61,7 @@ class Selve():
         print ("Setup")
         self.rxQ = asyncio.Queue()
         self.txQ = asyncio.Queue()
+        self.pauseWorker = False
         self.reader, self.writer = await serial_asyncio.open_serial_connection(
             loop=self.loop, 
             url="COM8", 
@@ -93,6 +100,7 @@ class Selve():
 
                 await self._sendCommandToGateway(data)
 
+                self.txQ.task_done()
         # serial port exceptions, all of these notify that we are in some
         # serious trouble
         except serial.SerialException:
@@ -103,18 +111,19 @@ class Selve():
     async def _workerLoop(self):
         print("worker started")
         while True:
-            if self.rxQ.qsize() > 0:
-                print("Checktrue")
-                data = await self.rxQ.get()
-                print(f'Data: {data}')
-                ## do something with the recieved data
-            else:
-                if(self.develop == True):
-                    line = await aioconsole.ainput('Command: ')
+            if not self.pauseWorker:
+                if self.rxQ.qsize() > 0:
+                    comm = await self.rxQ.get()
+                    print(f'Data recieved: {comm}')
+                    ## do something with the recieved data
+                    self.processResponse(comm)
+                else:
+                    if(self.develop == True):
+                        line = await aioconsole.ainput('Command: ')
 
-                    cmd = Command(line, [])
+                        cmd = Command(line, [])
 
-                    await self.executeCommand(cmd)
+                        await self.executeCommand(cmd)
 
 
     async def _sendCommandToGateway(self, command: Command):
@@ -127,7 +136,27 @@ class Selve():
         #self.writer.close()
 
 
+    
+    def _searchInQueue(self, methodName: str):
+        """Returns the first command of the queue that matches the given method name. """
+        popList = []
+        found = False
+        while self.rxQ.qsize > 0:
+            comm = self.rxQ.get_nowait()
+            if comm.methodName == methodName:
+                found = comm
+            else:
+                # add unrelated commands back to queue
+                popList.append(comm)
+        if popList.count() > 0:
+            for comm in popList:
+                self.rxQ.put(comm)
+        return found
+
+
     async def _start(self):
+        """Start all looping threads.
+        """
         asyncio.set_event_loop(self.loop)
         self.readLoopTask = asyncio.create_task(self._readLoop())
         self.writeLoopTask = asyncio.create_task(self._writeLoop())
@@ -141,10 +170,80 @@ class Selve():
         await asyncio.gather(self.readLoopTask, self._writeLoop)
         await asyncio.gather(self.readLoopTask, self._workerLoop)
         
+    def processResponse(self, comm):
+        """Processes an XML String into a response object."""
+        # check which command was recieved
+        # do something with the data
+        # return the ready to eat command
+        
+        _LOGGER.debug(str(xmlstr))
+        #The selve device sometimes answers a badformed header. This is a patch
+        xmlstr = str(xmlstr).replace('<?xml version="1.0"? encoding="UTF-8">', '<?xml version="1.0" encoding="UTF-8"?>')
+        try:
+            res = untangle.parse(xmlstr)
+            if not hasattr(res, 'methodResponse'):
+                _LOGGER.error("Bad response format")
+                return None
+            if hasattr(res.methodResponse, 'fault'):
+                return self.create_error(res)
+            return self.create_response(res)
+        except Exception as e:
+            _LOGGER.error("Error in XML: " + str(e) + " : " + xmlstr)
+    
+    def create_error(obj):
+        return ErrorResponse(obj.methodResponse.fault.array.string.cdata, obj.methodResponse.fault.array.int.cdata) 
+
+    
+    def create_response(obj):
+        array = obj.methodResponse.array
+        methodName = list(array.string)[0].cdata
+        str_params_tmp = list(array.string)[1:]
+        str_params = [(ParameterType.STRING, v.cdata) for v in str_params_tmp]
+        int_params = []
+        if hasattr(array, ParameterType.INT.value):
+            int_params = [(ParameterType.INT, v.cdata) for v in list(array.int)]
+        b64_params = []
+        if hasattr(array, ParameterType.BASE64.value):
+            b64_params = [(ParameterType.BASE64, v.cdata) for v in list(array.base64)]
+        paramslist = [str_params, int_params, b64_params]
+        flat_params_list = list(chain.from_iterable(paramslist))
+        
+        
+        if methodName == "selve.GW.command.result":
+            return CommeoCommandResult(methodName, flat_params_list)
+        if methodName == "selve.GW.event.device":
+            return CommeoDeviceEventResponse(methodName, flat_params_list)
+        if methodName == "selve.GW.event.sensor":
+            return SensorEventResponse(methodName, flat_params_list)
+        if methodName == "selve.GW.event.sender":
+            return SenderEventResponse(methodName, flat_params_list)
+        if methodName == "selve.GW.event.log":
+            return LogEventResponse(methodName, flat_params_list)
+        if methodName == "selve.GW.event.dutyCycle":
+            return DutyCycleResponse(methodName, flat_params_list)
+
+        return MethodResponse(methodName, flat_params_list)
 
 
     async def executeCommand(self, command: Command):
         await self.txQ.put(command)
+        
+    def executeCommandSync(self, command: Command, responseName: str):
+        self.pauseWorker = True
+        self.loop.run_until_complete(self._sendCommandToGateway(command))
+        #search response in queue
+        
+        startTimer = time.time() + 20 #20 sec timeout
+
+        while foundCommand := self._searchInQueue(responseName) is False:
+            if time.time() > startTimer:
+                self.pauseWorker = False
+                return False
+        else:
+            self.pauseWorker = False
+            return self.processResponse(foundCommand)
+        
+        
 
     async def discover(self):
         print("discover")
