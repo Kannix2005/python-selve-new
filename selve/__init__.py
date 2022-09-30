@@ -166,7 +166,7 @@ class Selve():
         await asyncio.gather(self.readLoopTask, self._writeLoop)
         await asyncio.gather(self.readLoopTask, self._workerLoop)
 
-    def processResponse(self, comm):
+    def processResponse(self, xmlstr):
         """Processes an XML String into a response object."""
         # check which command was recieved
         # do something with the data
