@@ -66,7 +66,7 @@ class DeviceCommandTypes(Enum):
     TIME = 2
     GLASS = 3
 
-class SenSimCommands(Enum):
+class DriveCommands(Enum):
     STOP = 0
     UP = 1
     DOWN = 2
