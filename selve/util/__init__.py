@@ -17,11 +17,7 @@ class Command():
                 xmlstr += "</array>"
             xmlstr+= "</methodCall>"
             return xmlstr.encode('utf-8')
-        
-    def executeAsync(self):
-        pass
-    def execute(self):
-        pass
+ 
 
 class GatewayCommand(Command):
 
@@ -37,6 +33,89 @@ class CommandMask(Command):
 
     def __init__(self, method_name, mask, command):
         super().__init__(method_name, [(ParameterType.BASE64, mask), (ParameterType.INT, command.value)])
+
+
+class MethodResponse:
+
+    def __init__(self, name, parameters):
+        self.name = name
+        self.parameters = parameters
+        
+class CommeoCommandResult(MethodResponse):
+    def __init__(self, name, parameters):
+        super().__init__(name, parameters)
+        self.command = self.name
+        self.commandType = DeviceCommandTypes(int(parameters[1][1]))
+        self.executed = bool(parameters[2][1])
+        self.successIds = [ b for b in true_in_list(b64bytes_to_bitlist(parameters[3][1]))]
+        self.failedIds = [ b for b in true_in_list(b64bytes_to_bitlist(parameters[4][1]))]
+
+class CommeoDeviceEventResponse(MethodResponse):
+    def __init__(self, name, parameters):
+        super().__init__(name, parameters)
+        self.actorName = str(parameters[0][1])
+        self.actorId = int(parameters[1][1])
+        self.actorState = MovementState(int(parameters[2][1]))
+        self.value = valueToPercentage(int(parameters[3][1]))
+        self.targetValue = valueToPercentage(int(parameters[4][1]))
+        bArr = intToBoolarray(int(parameters[5][1]))
+        self.unreachable = bArr[0]
+        self.overload = bArr[1]
+        self.obstructed = bArr[2]
+        self.alarm = bArr[3]
+        self.lostSensor = bArr[4]
+        self.automaticMode = bArr[5]
+        self.gatewayNotLearned = bArr[6]
+        self.windAlarm = bArr[7]
+        self.rainAlarm = bArr[8]
+        self.freezingAlarm = bArr[9]
+        self.dayMode = DayMode(int(parameters[6][1]))
+        self.deviceType = DeviceType(int(parameters[7][1]))
+
+class LogEventResponse(MethodResponse):
+    def __init__(self, name, parameters):
+        super().__init__(name, parameters)
+        self.logCode = str(parameters[0][1])
+        self.logStamp = str(parameters[1][1])
+        self.logValue = str(parameters[2][1])
+        self.logDescription = str(parameters[3][1])
+        self.logType = LogType(int(parameters[4][1]))
+
+class DutyCycleResponse(MethodResponse):
+    def __init__(self, name, parameters):
+        super().__init__(name, parameters)
+        self.mode = DutyMode(int(parameters[0][1]))
+        self.traffic = int(parameters[1][1])
+
+class SensorEventResponse(MethodResponse):
+    def __init__(self, name, parameters):
+        super().__init__(name, parameters)
+        self.id = int(parameters[0][1])
+        self.windDigital = windDigital(int(parameters[1][1]))
+        self.rainDigital = rainDigital(int(parameters[2][1]))
+        self.tempDigital = tempDigital(int(parameters[3][1]))
+        self.lightDigital = lightDigital(int(parameters[4][1]))
+        self.sensorState = SensorState(int(parameters[5][1]))
+        self.tempAnalog = int(parameters[6][1])
+        self.windAnalog = int(parameters[7][1])
+        self.sun1Analog = int(parameters[8][1])
+        self.dayLightAnalog = int(parameters[9][1])
+        self.sun2Analog = int(parameters[10][1])
+        self.sun3Analog = int(parameters[11][1])
+
+class SenderEventResponse(MethodResponse):
+    def __init__(self, name, parameters):
+        super().__init__(name, parameters)
+        self.senderName = str(parameters[0][1])
+        self.id = int(parameters[1][1])
+        self.event = senderEvents(int(parameters[2][1]))
+
+
+class ErrorResponse:
+    def __init__(self, message, code):
+        self.message = message
+        self.code = code
+
 
 class Util():
     
@@ -191,3 +270,8 @@ class CommandType(Enum):
     COMMAND = CommeoCommandCommand
     EVENT = CommeoEventCommand
     IVEO = IveoCommand
+
+### Responses
+    
+class ResponseTypes(Enum):
+    COMMANDRESULT = "selve.gw.command.result"

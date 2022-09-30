@@ -196,3 +196,5 @@ class senderEvents(Enum):
     KEYRELEASE = 11
     SELECT = 12
     DELETE = 13
+
+
