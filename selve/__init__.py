@@ -1,24 +1,27 @@
 import asyncio
 import logging
 import queue
-#import nest_asyncio
-from selve.util.commandFactory import Command
 import serial_asyncio
 import serial
 import aioconsole
 
+from selve.service import *
+from selve import *
+from selve.util import Command
+
 _LOGGER = logging.getLogger(__name__)
+
 
 class Selve():
     """Implementation of the serial communication to the Selve Gateway"""
 
-    def __init__(self, port, loop : asyncio.AbstractEventLoop = None, discover = True, develop = False):
+    def __init__(self, port, loop: asyncio.AbstractEventLoop = None, discover=True, develop=False):
         self.port = port
         self.connected = False
         self._LOGGER = _LOGGER
         self.devices: dict = {}
         self.develop = develop
-        #nest_asyncio.apply(loop)
+        # nest_asyncio.apply(loop)
 
         if loop == None:
             try:
@@ -41,7 +44,7 @@ class Selve():
     @property
     def loop(self):
         return self.loop
-    
+
     @property
     def devices(self):
         return self.devices
@@ -50,15 +53,26 @@ class Selve():
     def gateway(self):
         return self
 
+    @port.setter
+    def port(self, value):
+        self._port = value
+
+    @devices.setter
+    def devices(self, value):
+        self._devices = value
+
+    @loop.setter
+    def loop(self, value):
+        self._loop = value
 
     async def _setup(self):
-        print ("Setup")
+        print("Setup")
         self.rxQ = asyncio.Queue()
         self.txQ = asyncio.Queue()
         self.reader, self.writer = await serial_asyncio.open_serial_connection(
-            loop=self.loop, 
-            url="COM8", 
-            baudrate=115200, 
+            loop=self.loop,
+            url="COM8",
+            baudrate=115200,
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
@@ -67,16 +81,15 @@ class Selve():
             dsrdtr=False
         )
 
-
     async def _readLoop(self):
         # Infinite loop to collect all incoming data
-        print ("Reader started")
+        print("Reader started")
         try:
             while True:
                 msg = await self.reader.readuntil(b' ')
-                #if msg.rstrip() == b' ':
+                # if msg.rstrip() == b' ':
                 print(f'Recieved:  {msg.decode()}')
-                
+
                 await self.rxQ.put(msg.decode())
         # serial port exceptions, all of these notify that we are in some
         # serious trouble
@@ -86,7 +99,7 @@ class Selve():
 
     async def _writeLoop(self):
         # Infinite loop to collect all incoming data
-        print ("Writer started")
+        print("Writer started")
         try:
             while True:
                 data = await self.txQ.get()
@@ -99,7 +112,6 @@ class Selve():
             # log message
             self._LOGGER.error('Serial Port TX error')
 
-
     async def _workerLoop(self):
         print("worker started")
         while True:
@@ -109,13 +121,12 @@ class Selve():
                 print(f'Data: {data}')
                 ## do something with the recieved data
             else:
-                if(self.develop == True):
+                if (self.develop == True):
                     line = await aioconsole.ainput('Command: ')
 
                     cmd = Command(line, [])
 
                     await self.executeCommand(cmd)
-
 
     async def _sendCommandToGateway(self, command: Command):
         commandstr = command.serializeToXML()
@@ -123,9 +134,8 @@ class Selve():
         try:
             self.writer.write(commandstr)
         except Exception as e:
-            _LOGGER.error ("error communicating: " + str(e))
-        #self.writer.close()
-
+            _LOGGER.error("error communicating: " + str(e))
+        # self.writer.close()
 
     async def _start(self):
         asyncio.set_event_loop(self.loop)
@@ -140,8 +150,6 @@ class Selve():
         await asyncio.gather(self.readLoopTask, self._readLoop)
         await asyncio.gather(self.readLoopTask, self._writeLoop)
         await asyncio.gather(self.readLoopTask, self._workerLoop)
-        
-
 
     async def executeCommand(self, command: Command):
         await self.txQ.put(command)
@@ -155,7 +163,7 @@ class Selve():
         pass
 
     async def deleteDevice(self, id):
-        #delete in GW
+        # delete in GW
         self.devices.pop(id)
         pass
 
@@ -167,23 +175,22 @@ class Selve():
         while i < 64:
             if not self.is_id_registered(i):
                 return i
-            i=i+1
+            i = i + 1
 
     async def pingGateway(self):
         self.gatewayReady()
-        command = CommeoServicePing()
+        command = ServicePing()
         await command.execute(self)
         print("Ping")
 
-
     async def gatewayState(self):
-        command = CommeoServiceGetState()
+        command = ServiceGetState()
         await command.execute(self)
         if hasattr(command, "status"):
             return command.status
 
     async def gatewayReady(self):
-        state = await self.gatewayState() 
+        state = await self.gatewayState()
         if state == ServiceState.READY:
             return
         else:
@@ -191,7 +198,7 @@ class Selve():
 
     async def getVersionG(self):
         self.gatewayReady()
-        command = CommeoServiceGetVersion()
+        command = ServiceGetVersion()
         return await command.execute(self)
 
     async def getGatewayFirmwareVersion(self):
@@ -208,4 +215,3 @@ class Selve():
         command = self.getVersionG()
         if hasattr(command, "spec"):
             return command.spec
-
