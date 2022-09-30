@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from selve.util import *
 
 class CommeoCommand(GatewayCommand):

@@ -1,33 +1,31 @@
 import asyncio
-from itertools import chain
-import logging
-import queue
-from time import time
-from selve.util import CommeoCommandResult, CommeoDeviceEventResponse, DutyCycleResponse, ErrorResponse, LogEventResponse, MethodResponse, ResponseType, SenderEventResponse, SensorEventResponse, Util
-#import nest_asyncio
-from selve.util.commandFactory import Command
-from selve.util.protocol import ParameterType
-import serial_asyncio
-import serial
-import aioconsole
-import untangle
+import time
 
-from selve.service import *
+import aioconsole
+import serial
+import serial_asyncio
+
 from selve import *
+from selve.service import *
+from selve.util import *
 from selve.util import Command
+from selve.util.errors import *
+from selve.util.protocol import ParameterType
 
 _LOGGER = logging.getLogger(__name__)
+
 
 class Selve():
     """Implementation of the serial communication to the Selve Gateway"""
 
-    def __init__(self, port, loop : asyncio.AbstractEventLoop = None, discover = True, develop = False):
+    def __init__(self, port, loop: asyncio.AbstractEventLoop = None, discover=True, develop=False):
+        self.pauseWorker = None
         self.port = port
         self.connected = False
         self._LOGGER = _LOGGER
         self.devices: dict = {}
         self.develop = develop
-        #nest_asyncio.apply(loop)
+        # nest_asyncio.apply(loop)
 
         if loop == None:
             try:
@@ -50,7 +48,7 @@ class Selve():
     @property
     def loop(self):
         return self.loop
-    
+
     @property
     def devices(self):
         return self.devices
@@ -72,14 +70,14 @@ class Selve():
         self._loop = value
 
     async def _setup(self):
-        print ("Setup")
+        print("Setup")
         self.rxQ = asyncio.Queue()
         self.txQ = asyncio.Queue()
         self.pauseWorker = False
         self.reader, self.writer = await serial_asyncio.open_serial_connection(
-            loop=self.loop, 
-            url="COM8", 
-            baudrate=115200, 
+            loop=self.loop,
+            url="COM8",
+            baudrate=115200,
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
@@ -88,16 +86,15 @@ class Selve():
             dsrdtr=False
         )
 
-
     async def _readLoop(self):
         # Infinite loop to collect all incoming data
-        print ("Reader started")
+        print("Reader started")
         try:
             while True:
                 msg = await self.reader.readuntil(b' ')
-                #if msg.rstrip() == b' ':
+                # if msg.rstrip() == b' ':
                 print(f'Recieved:  {msg.decode()}')
-                
+
                 await self.rxQ.put(msg.decode())
         # serial port exceptions, all of these notify that we are in some
         # serious trouble
@@ -107,7 +104,7 @@ class Selve():
 
     async def _writeLoop(self):
         # Infinite loop to collect all incoming data
-        print ("Writer started")
+        print("Writer started")
         try:
             while True:
                 data = await self.txQ.get()
@@ -121,7 +118,6 @@ class Selve():
             # log message
             self._LOGGER.error('Serial Port TX error')
 
-
     async def _workerLoop(self):
         print("worker started")
         while True:
@@ -132,13 +128,12 @@ class Selve():
                     ## do something with the recieved data
                     self.processResponse(comm)
                 else:
-                    if(self.develop == True):
+                    if (self.develop == True):
                         line = await aioconsole.ainput('Command: ')
 
                     cmd = Command(line, [])
 
                     await self.executeCommand(cmd)
-
 
     async def _sendCommandToGateway(self, command: Command):
         commandstr = command.serializeToXML()
@@ -146,9 +141,8 @@ class Selve():
         try:
             self.writer.write(commandstr)
         except Exception as e:
-            _LOGGER.error ("error communicating: " + str(e))
-        #self.writer.close()
-
+            _LOGGER.error("error communicating: " + str(e))
+        # self.writer.close()
 
     async def _start(self):
         """Start all looping threads.
@@ -173,7 +167,7 @@ class Selve():
         # return the ready to eat command
 
         _LOGGER.debug(str(xmlstr))
-        #The selve device sometimes answers a badformed header. This is a patch
+        # The selve device sometimes answers a badformed header. This is a patch
         xmlstr = str(xmlstr).replace('<?xml version="1.0"? encoding="UTF-8">', '<?xml version="1.0" encoding="UTF-8"?>')
         try:
             res = untangle.parse(xmlstr)
@@ -189,7 +183,6 @@ class Selve():
     def create_error(obj):
         return ErrorResponse(obj.methodResponse.fault.array.string.cdata, obj.methodResponse.fault.array.int.cdata)
 
-
     def create_response(obj):
         array = obj.methodResponse.array
         methodName = list(array.string)[0].cdata
@@ -203,7 +196,6 @@ class Selve():
             b64_params = [(ParameterType.BASE64, v.cdata) for v in list(array.base64)]
         paramslist = [str_params, int_params, b64_params]
         flat_params_list = list(chain.from_iterable(paramslist))
-
 
         if methodName == "selve.GW.command.result":
             return CommeoCommandResult(methodName, flat_params_list)
@@ -220,16 +212,15 @@ class Selve():
 
         return MethodResponse(methodName, flat_params_list)
 
-
     async def executeCommand(self, command: Command):
         await self.txQ.put(command)
 
     def executeCommandSync(self, command: Command, responseName: str):
         self.pauseWorker = True
         self.loop.run_until_complete(self._sendCommandToGateway(command))
-        #search response in queue
+        # search response in queue
 
-        startTimer = time.time() + 20 #20 sec timeout
+        startTimer = time.time() + 20  # 20 sec timeout
 
         while foundCommand := self._searchInQueue(responseName) is False:
             if time.time() > startTimer:
@@ -238,8 +229,6 @@ class Selve():
         else:
             self.pauseWorker = False
             return self.processResponse(foundCommand)
-
-
 
     async def discover(self):
         print("discover")
@@ -250,7 +239,7 @@ class Selve():
         pass
 
     async def deleteDevice(self, id):
-        #delete in GW
+        # delete in GW
         self.devices.pop(id)
         pass
 
@@ -262,14 +251,13 @@ class Selve():
         while i < 64:
             if not self.is_id_registered(i):
                 return i
-            i=i+1
+            i = i + 1
 
     async def pingGateway(self):
         self.gatewayReady()
         command = ServicePing()
         await command.execute(self)
         print("Ping")
-
 
     async def gatewayState(self):
         command = ServiceGetState()
@@ -278,7 +266,7 @@ class Selve():
             return command.status
 
     async def gatewayReady(self):
-        state = await self.gatewayState() 
+        state = await self.gatewayState()
         if state == ServiceState.READY:
             return
         else:
@@ -303,4 +291,3 @@ class Selve():
         command = self.getVersionG()
         if hasattr(command, "spec"):
             return command.spec
-
