@@ -1,45 +1,39 @@
-from selve.util import *
-        
-class DeviceScanStart(GatewayCommand):
-    def __init__(self):
-        super().__init__(CommandType.CommeoDeviceCommand.SCANSTART)
-        
-class DeviceScanStop(GatewayCommand):
-    def __init__(self):
-        super().__init__(CommandType.CommeoDeviceCommand.SCANSTOP)
-        
-class DeviceSave(GatewayCommand):
-    def __init__(self, id: int):
-        super().__init__(CommandType.CommeoDeviceCommand.SAVE, [(ParameterType.INT, id)])
-        
-class DeviceGetIds(GatewayCommand):
-    def __init__(self):
-        super().__init__(CommandType.CommeoDeviceCommand.GETIDS)
-        
-class DeviceGetInfo(GatewayCommand):
-    def __init__(self, id: int):
-        super().__init__(CommandType.CommeoDeviceCommand.GETINFO, [(ParameterType.INT, id)])
-        
-class DeviceGetValues(GatewayCommand):
-    def __init__(self, id: int):
-        super().__init__(CommandType.CommeoDeviceCommand.GETVALUES, [(ParameterType.INT, id)])
-        
-class DeviceSetFunction(GatewayCommand):
-    def __init__(self, id: int, function: DeviceFunctions):
-        super().__init__(CommandType.CommeoDeviceCommand.SETFUNCTION, [(ParameterType.INT, id), (ParameterType.INT, function.value)])
-        
-class DeviceSetLabel(GatewayCommand):
-    def __init__(self, id: bool, name: str):
-        super().__init__(CommandType.CommeoDeviceCommand.SETLABEL, [(ParameterType.INT, id), (ParameterType.STRING, name)])
-        
-class DeviceSetType(GatewayCommand):
-    def __init__(self, id: int, type: DeviceType):
-        super().__init__(CommandType.CommeoDeviceCommand.SETTYPE, [(ParameterType.INT, id), (ParameterType.INT, type.value)])
-        
-class DeviceDelete(GatewayCommand):
-    def __init__(self, id: int):
-        super().__init__(CommandType.CommeoDeviceCommand.DELETE, [(ParameterType.INT, id)])
-        
-class DeviceWriteManual(GatewayCommand):
-    def __init__(self, id: int, adress: int, name: str, type: DeviceType):
-        super().__init__(CommandType.CommeoDeviceCommand.WRITEMANUAL, [(ParameterType.INT, id), (ParameterType.INT, adress), (ParameterType.STRING, name), (ParameterType.INT, type.value)])
+from selve import SelveTypes, Util, DeviceType, CommunicationType, MovementState, DayMode, \
+    DeviceGetIdsResponse, DeviceGetInfoResponse, DeviceGetInfo, DeviceGetValuesResponse, DeviceGetValues
+
+
+class SelveDevice:
+    def __init__(self, id: int, device_type: SelveTypes = SelveTypes.UNKNOWN,
+                 device_sub_type: DeviceType = DeviceType.UNKNOWN):
+        self.id = id
+        self.device_type = device_type
+        self.device_sub_type = device_sub_type
+        self.mask = Util.singlemask(id)
+        self.name = "None"
+        self.rfAdress = 0
+        self.communicationType = CommunicationType.COMMEO
+        self.state = MovementState.UNKOWN
+        self.infoState = 0
+        self.value = 0
+        self.targetValue = 0
+        self.unreachable = False
+        self.overload = False
+        self.obstructed = False
+        self.alarm = False
+        self.lostSensor = False
+        self.automaticMode = False
+        self.gatewayNotLearned = False
+        self.windAlarm = False
+        self.rainAlarm = False
+        self.freezingAlarm = False
+        self.dayMode = DayMode.UNKOWN
+
+
+    def __str__(self):
+        return "Device " + self.device_type.name + " " + self.device_sub_type.name + " of type: " + self.communicationType.name + " on channel " + str(
+            self.id) + " with name " + self.name
+
+
+
+
+

@@ -1,4 +1,3 @@
-import protocol
 import base64
 from selve.util.protocol import *
 
@@ -45,20 +44,20 @@ class CommeoCommandResult(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
         self.command = self.name
-        self.commandType = DeviceCommandTypes(int(parameters[1][1]))
+        self.commandType = DeviceCommandType(int(parameters[1][1]))
         self.executed = bool(parameters[2][1])
-        self.successIds = [ b for b in true_in_list(b64bytes_to_bitlist(parameters[3][1]))]
-        self.failedIds = [ b for b in true_in_list(b64bytes_to_bitlist(parameters[4][1]))]
+        self.successIds = [ b for b in Util.true_in_list(Util.b64bytes_to_bitlist(parameters[3][1]))]
+        self.failedIds = [ b for b in Util.true_in_list(Util.b64bytes_to_bitlist(parameters[4][1]))]
 
 class CommeoDeviceEventResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.actorName = str(parameters[0][1])
-        self.actorId = int(parameters[1][1])
+        self.name = str(parameters[0][1])
+        self.id = int(parameters[1][1])
         self.actorState = MovementState(int(parameters[2][1]))
-        self.value = valueToPercentage(int(parameters[3][1]))
-        self.targetValue = valueToPercentage(int(parameters[4][1]))
-        bArr = intToBoolarray(int(parameters[5][1]))
+        self.value = Util.valueToPercentage(int(parameters[3][1]))
+        self.targetValue = Util.valueToPercentage(int(parameters[4][1]))
+        bArr = Util.intToBoolarray(int(parameters[5][1]))
         self.unreachable = bArr[0]
         self.overload = bArr[1]
         self.obstructed = bArr[2]
@@ -110,7 +109,6 @@ class SenderEventResponse(MethodResponse):
         self.id = int(parameters[1][1])
         self.event = senderEvents(int(parameters[2][1]))
 
-
 class ErrorResponse:
     def __init__(self, message, code):
         self.message = message
@@ -118,7 +116,7 @@ class ErrorResponse:
 
 
 class Util():
-    
+    @classmethod
     def singlemask(self, id):
         #Obtains a base64 encoded to modify just one index
         mask =  64 * [0]
@@ -128,6 +126,7 @@ class Util():
         bitstring = "".join(str(x) for x in mask)
         return base64.b64encode(self.bitstring_to_bytes(bitstring)).decode('utf8')
 
+    @classmethod
     def multimask(self, ids):
         mask = 64 * [0]
         for id in ids:
@@ -136,23 +135,34 @@ class Util():
         bitstring = "".join(str(x) for x in mask)
         return base64.b64encode(self.bitstring_to_bytes(bitstring)).decode('utf8')
 
-
+    @classmethod
     def bitstring_to_bytes(self, s):
         return int(s, 2).to_bytes(len(s) // 8, byteorder='big')
 
+    @classmethod
     def b64bytes_to_bitlist(self, b):
         byts = base64.b64decode(b)
         return [bool(int(value)) for value in list(''.join([bin(by).lstrip('0b').zfill(8)[::-1] for by in byts]))]
 
+    @classmethod
     def true_in_list(self, l):
         return [i for i,v in enumerate(l) if v]
 
+    @classmethod
     def valueToPercentage(self, value):
         return int((value / 65535)*100)
+    @classmethod
+    def valueToDegrees(self, value):
+        return int((value / 65535)*360)
 
+    @classmethod
     def percentageToValue(self, perc):
         return int((65535/100)*(perc))
+    @classmethod
+    def degreesToValue(self, perc):
+        return int((65535/360)*(perc))
 
+    @classmethod
     def intToBoolarray(self, value):
         return [bool(bit) for bit in '{0:10b}'.format(value)]
 
@@ -260,6 +270,10 @@ class IveoCommand(Enum):
     
 
 class CommandType(Enum):
+    def __getattr__(self, item):
+        if item != '_value_':
+            return getattr(self.value, item).value
+        raise AttributeError
     SERVICE = CommeoServiceCommand   
     PARAM = CommeoParamCommand
     DEVICE = CommeoDeviceCommand

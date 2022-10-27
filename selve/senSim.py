@@ -1,73 +1,28 @@
-from selve.util import *
-        
-class SenSimStoreStore(GatewayCommand):
-    def __init__(self, id: int, actorId: int):
-        super().__init__(CommandType.CommeoSenSimCommand.STORE, [(ParameterType.INT, id), (ParameterType.INT, actorId)])
-        
-class SenSimDelete(GatewayCommand):
-    def __init__(self, id: int, actorId: int):
-        super().__init__(CommandType.CommeoSenSimCommand.DELETE, [(ParameterType.INT, id), (ParameterType.INT, actorId)])
-        
-class SenSimGetConfig(GatewayCommand):
-    def __init__(self, id: int):
-        super().__init__(CommandType.CommeoSenSimCommand.GETCONFIG, [(ParameterType.INT, id)])
-        
-class SenSimSetConfig(GatewayCommand):
-    def __init__(self, id: int, activity: bool):
-        super().__init__(CommandType.CommeoSenSimCommand.SETCONFIG, [(ParameterType.INT, id), (ParameterType.INT, 1 if activity else 0)])
-        
-class SenSimSetLabel(GatewayCommand):
-    def __init__(self, id: bool, name: str):
-        super().__init__(CommandType.CommeoSenSimCommand.SETLABEL, [(ParameterType.INT, id), (ParameterType.STRING, name)])
-        
-class SenSimSetValues(GatewayCommand):
-    def __init__(
-        self, 
-        id: int, 
-        windDigital: int, 
-        rainDigital: int, 
-        tempDigital: int, 
-        lightDigital: int, 
-        tempAnalog: int, 
-        windAnalog: int, 
-        sun1Analog: int, 
-        dayLightAnalog: int, 
-        sun2Analog: int, 
-        sun3Analog: int
-        ):
-        super().__init__(CommandType.CommeoSenSimCommand.SETVALUES, 
-                         [(ParameterType.INT, id), 
-                          (ParameterType.INT, windDigital), 
-                          (ParameterType.INT, rainDigital), 
-                          (ParameterType.INT, tempDigital), 
-                          (ParameterType.INT, lightDigital), 
-                          (ParameterType.INT, tempAnalog), 
-                          (ParameterType.INT, windAnalog), 
-                          (ParameterType.INT, sun1Analog), 
-                          (ParameterType.INT, dayLightAnalog), 
-                          (ParameterType.INT, sun2Analog), 
-                          (ParameterType.INT, sun3Analog)])
-        
-class SenSimGetValues(GatewayCommand):
-    def __init__(self, id: int):
-        super().__init__(CommandType.CommeoSenSimCommand.GETVALUES, [(ParameterType.INT, id)])
-        
-class SenSimGetIds(GatewayCommand):
-    def __init__(self):
-        super().__init__(CommandType.CommeoSenSimCommand.GETIDS)
-        
-class SenSimFactory(GatewayCommand):
-    def __init__(self, id: int):
-        super().__init__(CommandType.CommeoSenSimCommand.FACTORY, [(ParameterType.INT, id)])
-        
-class SenSimDrive(GatewayCommand):
-    def __init__(self, id: int, command: SenSimCommandType):
-        super().__init__(CommandType.CommeoSenSimCommand.DRIVE, [(ParameterType.INT, id), (ParameterType.INT, command)])
-        
-class SenSimSetTest(GatewayCommand):
-    def __init__(self, id: int, testMode: int):
-        super().__init__(CommandType.CommeoSenSimCommand.SETTEST, [(ParameterType.INT, id), (ParameterType.INT, testMode)])
-        
-class SenSimGetTest(GatewayCommand):
-    def __init__(self, id: int):
-        super().__init__(CommandType.CommeoSenSimCommand.GETTEST, [(ParameterType.INT, id)])
+from selve import SelveTypes, DeviceType, Util, CommunicationType, windDigital, rainDigital, tempDigital, lightDigital, \
+    SensorState
+
+
+class SelveSenSim:
+    def __init__(self, id: int, device_type: SelveTypes = SelveTypes.SENSOR,
+                 device_sub_type: DeviceType = DeviceType.UNKNOWN):
+        self.id = id
+        self.device_type = device_type
+        self.device_sub_type = device_sub_type
+        self.mask = Util.singlemask(id)
+        self.name = "None"
+        self.activity = ""
+        self.communicationType = CommunicationType.COMMEO
+        self.windDigital = windDigital.NONE
+        self.rainDigital = rainDigital.NONE
+        self.tempDigital = tempDigital.NONE
+        self.lightDigital = lightDigital.NONE
+        self.sensorState = SensorState.AVAILABLE
+        self.tempAnalog = 0
+        self.windAnalog = 0
+        self.sun1Analog = 0
+        self.dayLightAnalog = 0
+        self.sun2Analog = 0
+        self.sun3Analog = 0
+    def __str__(self):
+        return "Sensor " + self.device_type.name + " of type: " + self.communicationType.name + " on channel " + str(
+            self.id) + " with name " + self.name
