@@ -1,25 +1,40 @@
 import logging
 import sys
 import asyncio
+import threading
+
 import selve
-from selve.util.commandFactory import Command
 
 
 ## In HA this would be loop = self.hass.loop
 loop = asyncio.new_event_loop()
-portname = 'COM8'
-selve = selve.Selve(portname, loop, develop=True)
+portname = 'COM4'
 
-selve._LOGGER.setLevel(logging.DEBUG)
+logger = logging.getLogger("Logger")
+logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
-selve._LOGGER.addHandler(handler)
+logger.addHandler(handler)
+
+
+selve = selve.Selve(portname, loop, develop=False, discover=False, logger=logger)
+
+
 
 #try:
 #    loop.run_until_complete()
 #except KeyboardInterrupt:
 #    loop.close()
 
+threading.Thread(target=loop.run_forever, args=())
 
-loop.run_forever()
+selve.pingGateway()
+#selve.resetGateway()
+selve.discover()
+selve.list_devices()
+
+
+selve.moveDeviceDown(selve.devices['device'][1])
+selve.moveDeviceUp(selve.devices['device'][1])

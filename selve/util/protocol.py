@@ -1,11 +1,5 @@
-from os import name
-from selve.utils import b64bytes_to_bitlist, intToBoolarray, true_in_list, valueToPercentage
-from enum import Enum, Flag
-from itertools import chain
-from serial.serialutil import STOPBITS_ONE
-import untangle
 import logging
-
+from enum import Enum
 
 _LOGGER = logging.getLogger(__name__)
 class DeviceType(Enum):
@@ -21,6 +15,21 @@ class DeviceType(Enum):
     COOLING = 9
     SWITCHDAY = 10
     GATEWAY = 11
+
+class SelveTypes(Enum):
+    SERVICE = "service"
+    PARAM = "param"
+    DEVICE = "device"
+    SENSOR = "sensor"
+    SENSIM = "senSim"
+    SENDER = "sender"
+    GROUP = "group"
+    COMMAND = "command"
+    EVENT = "event"
+    IVEO = "iveo"
+    COMMEO = "commeo"
+    FIRMWARE = "firmware"
+    UNKNOWN = "unknown"
 
 class DeviceState(Enum):
     UNUSED = 0
@@ -46,7 +55,7 @@ class SenSimCommandType(Enum):
     POSITION_1 = 3
     POSITION_2 = 4
 
-class DriveCommandType(Enum):
+class DriveCommandCommeo(Enum):
     STOP = 0
     DRIVEUP = 1
     DRIVEDOWN = 2
@@ -60,18 +69,20 @@ class DriveCommandType(Enum):
     AUTOON = 10
     AUTOOFF = 11
 
-class DeviceCommandTypes(Enum):
+class DeviceCommandType(Enum):
     FORCED = 0
     MANUAL = 1
     TIME = 2
     GLASS = 3
 
-class DriveCommands(Enum):
+class DriveCommandIveo(Enum):
     STOP = 0
     UP = 1
     DOWN = 2
     POS1 = 3
     POS2 = 5
+    LEARNTELEGRAMSENT = 254
+    TEACHTELEGRAMSENT = 255
 
 class ParameterType(Enum):
     INT = "int"
@@ -89,6 +100,10 @@ class TeachState(Enum):
     IDLE = 0
     RUN = 1
     END_SUCCESS = 2
+
+class CommandResultState(Enum):
+    IDLE = 0
+    SEND = 1
 
 class ServiceState(Enum):
     BOOTLOADER = 0

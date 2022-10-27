@@ -2,27 +2,35 @@ from enum import Enum
 from typing import Dict
 
 
-class GatewayError:
+class GatewayError(Exception):
+    pass
+
+class PortError(Exception):
+    pass
+class CommunicationError(Exception):
+    pass
+class ReadTimeoutError(Exception):
     pass
 
 
-ErrorCodes = [
-    "Unknown Error",
-    "Method not supported",
-    "Method not reachable",
-    "Parameter count",
-    "Parameter order",
-    "Execution failed",
-    "Parameter out of range",
-    "Syntax error",
-    "Method length too large",
-    "ID is not used",
-    "ID already exists",
-    "Address is already used",
-    "No member available",
-    "Duty Cycle is reached"
-]
-ErrorCodes[40] = "Bootl: Method not supported"
-ErrorCodes[41] = "Bootl: Wrong file"
-ErrorCodes[42] = "Bootl: Checksum error"
-ErrorCodes[43] = "Bootl: Syntax error"
+ErrorCodes = {
+    1: "Unknown Error",
+    2: "Method not supported",
+    3: "Method not reachable",
+    4: "Parameter count",
+    5: "Parameter order",
+    6: "Execution failed",
+    7: "Parameter out of range",
+    8: "Syntax error",
+    9: "Method length too large",
+    10: "ID is not used",
+    11: "ID already exists",
+    12: "Address is already used",
+    13: "No member available",
+    14: "Duty Cycle is reached",
+    40: "Bootl: Method not supported",
+    41: "Bootl: Wrong file",
+    42: "Bootl: Checksum error",
+    43: "Bootl: Syntax error"
+}
+
