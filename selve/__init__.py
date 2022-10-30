@@ -40,7 +40,7 @@ class Selve:
 
     def __init__(self, port, loop: asyncio.AbstractEventLoop = None, discover=True, develop=False, logger=None):
         # Gateway state
-        self._callbacks = None
+        self._callbacks = set()
         self.lastLogEvent = None
         self.state = None
 
