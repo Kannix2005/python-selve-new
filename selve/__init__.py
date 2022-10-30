@@ -5,6 +5,7 @@ import queue
 import threading
 import time
 from itertools import chain
+from typing import Callable
 
 import serial
 from serial.tools import list_ports
@@ -39,6 +40,7 @@ class Selve:
 
     def __init__(self, port, loop: asyncio.AbstractEventLoop = None, discover=True, develop=False, logger=None):
         # Gateway state
+        self._callbacks = None
         self.lastLogEvent = None
         self.state = None
 
@@ -116,6 +118,14 @@ class Selve:
         else:
             self._LOGGER.error("No gateway on comports found!")
             raise PortError
+
+    def register_callback(self, callback: Callable[[], None]) -> None:
+        """Register callback, called when Roller changes state."""
+        self._callbacks.add(callback)
+
+    def remove_callback(self, callback: Callable[[], None]) -> None:
+        """Remove previously registered callback."""
+        self._callbacks.discard(callback)
 
     def _worker(self):
         # Infinite loop to collect all incoming data
@@ -218,7 +228,7 @@ class Selve:
                 self.commandResult(response)
             if isinstance(response, DeviceGetValuesResponse):
                 self.updateCommeoDeviceValuesFromResponse(int(response.parameters[1][1]), response)
-            
+
             return response
 
         except Exception as e:
@@ -601,6 +611,10 @@ class Selve:
         self.devices[type.value][device.id] = device
         # add in gateway
 
+        # if there is a callback for updates, call it
+        for callback in self._callbacks:
+            callback()
+
     def getDevice(self, id: int, type: SelveTypes) -> SelveDevice | SelveSensor | SelveSender | SelveGroup | SelveSenSim | None:
         if id in self.devices[type.value]:
             return self.devices[type.value][id]
@@ -794,7 +808,8 @@ class Selve:
 
 
     def commandResult(self, response):
-        pass
+        for callback in self._callbacks:
+            callback()
 
     ##Device functions
 
