@@ -9,7 +9,7 @@ class SelveSensor:
         self.device_type = device_type
         self.device_sub_type = device_sub_type
         self.mask = Util.singlemask(id)
-        self.name = "None"
+        self.name = "Sensor " + str(id)
         self.communicationType = CommunicationType.COMMEO
         self.windDigital = windDigital.NONE
         self.rainDigital = rainDigital.NONE

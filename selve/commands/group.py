@@ -26,9 +26,9 @@ class GroupDelete(GatewayCommand):
 class GroupReadResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.id = int(parameters[0][1])
-        self.mask = parameters[1][1]
-        self.name = str(parameters[2][1])
+        self.id = int(parameters[1][1])
+        self.mask = parameters[2][1]
+        self.name = str(parameters[0][1])
 
 
 class GroupWriteResponse(MethodResponse):

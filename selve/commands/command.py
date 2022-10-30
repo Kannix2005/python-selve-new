@@ -6,15 +6,10 @@ class CommeoCommand(GatewayCommand):
     def __init__(self, id: int | dict, driveComm: DriveCommandCommeo, type: DeviceCommandType, param: int = 0, isGroupCmd: bool = False):
         if not isGroupCmd:
             comm = CommeoCommandCommand.DEVICE
-            super().__init__(comm, [(ParameterType.INT, id), (ParameterType.INT, driveComm.value), (ParameterType.INT, type.value), (ParameterType.INT, param)])
         else:
             comm = CommeoCommandCommand.GROUP
-            if not isinstance(id, dict):
-                raise AttributeError()
-            id_b64 = Util.multimask(id)
-            super().__init__(CommeoCommandCommand.DEVICE,
-                             [(ParameterType.BASE64, id_b64), (ParameterType.INT, driveComm.value),
-                              (ParameterType.INT, type.value), (ParameterType.INT, param)])
+        super().__init__(comm, [(ParameterType.INT, id), (ParameterType.INT, driveComm.value),
+                                (ParameterType.INT, type.value), (ParameterType.INT, param)])
 
 class CommandStop(CommeoCommand):
     def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
@@ -66,51 +61,51 @@ class CommandDriveAutoOff(CommeoCommand):
 
 
 class CommandStopGroup(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.STOP, type, param, True)
 
 class CommandDriveUpGroup(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.DRIVEUP, type, param, True)
 
 class CommandDriveDownGroup(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.DRIVEDOWN, type, param, True)
 
 class CommandDrivePos1Group(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.DRIVEPOS1, type, param, True)
 
 class CommandSavePos1Group(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.SAVEPOS1, type, param, True)
 
 class CommandDrivePos2Group(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.DRIVEPOS2, type, param, True)
 
 class CommandSavePos2Group(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.SAVEPOS2, type, param, True)
 
 class CommandDrivePosGroup(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.DRIVEPOS, type, param, True)
 
 class CommandStepUpGroup(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.STEPUP, type, param, True)
 
 class CommandStepDownGroup(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.STEPDOWN, type, param, True)
 
 class CommandAutoOnGroup(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.AUTOON, type, param, True)
 
 class CommandAutoOffGroup(CommeoCommand):
-    def __init__(self, id: dict, type: DeviceCommandType, param: int = 0):
+    def __init__(self, id: int, type: DeviceCommandType, param: int = 0):
         super().__init__(id, DriveCommandCommeo.AUTOOFF, type, param, True)
 
 

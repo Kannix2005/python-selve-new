@@ -15,14 +15,14 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
 setup(
     
     name='python-selve-new',  # Required    
-    version='0.0.1',  # Required  
+    version='2.0.1',  # Required
     description='Python library for interfacing with selve devices using the USB-RF controller. Written completely new.',  # Required   
     long_description=long_description,  # Optional 
     long_description_content_type="text/markdown",   
     url='https://github.com/Kannix2005/python-selve-new',  # Optional
     author='Stefan Altheimer',  # Optional
    
-    author_email='stefan.altheimer@gmail.com',  # Optional
+    author_email='me@stefan-altheimer.de',  # Optional
 
     # Classifiers help users find your project by categorizing it.
     #

@@ -33,8 +33,9 @@ threading.Thread(target=loop.run_forever, args=())
 selve.pingGateway()
 #selve.resetGateway()
 selve.discover()
-selve.list_devices()
 
 
-selve.moveDeviceDown(selve.devices['device'][1])
-selve.moveDeviceUp(selve.devices['device'][1])
+#selve.moveDeviceDown(selve.devices['device'][1])
+selve.moveGroupUp(selve.devices['group'][1])
+
+loop.run_forever()
