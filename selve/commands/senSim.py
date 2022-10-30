@@ -127,6 +127,7 @@ class SenSimSetValuesResponse(MethodResponse):
 class SenSimGetValuesResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
+        self.sensorState = None
         self.windDigital = windDigital(int(parameters[1][1]))
         self.rainDigital = rainDigital(int(parameters[2][1]))
         self.tempDigital = tempDigital(int(parameters[3][1]))

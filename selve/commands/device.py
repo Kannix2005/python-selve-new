@@ -103,7 +103,7 @@ class DeviceGetValuesResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
         self.name = parameters[0][1] if parameters[0][1] else ""
-        self.movementState = MovementState(int(parameters[2][1]))
+        self.movementState = MovementState(int(parameters[2][1])) if int(parameters[2][1]) else MovementState(0)
         self.value = Util.valueToPercentage(int(parameters[3][1]))
         self.targetValue = Util.valueToPercentage(int(parameters[4][1]))
 

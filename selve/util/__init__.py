@@ -145,6 +145,11 @@ class Util():
         return [bool(int(value)) for value in list(''.join([bin(by).lstrip('0b').zfill(8)[::-1] for by in byts]))]
 
     @classmethod
+    def b64_mask_to_list(self, b):
+        return self.true_in_list(self.b64bytes_to_bitlist(b))
+
+
+    @classmethod
     def true_in_list(self, l):
         return [i for i,v in enumerate(l) if v]
 

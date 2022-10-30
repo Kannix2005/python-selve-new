@@ -11,3 +11,9 @@ class SelveGroup:
         self.mask = None
         self.name = "None"
         self.communicationType = CommunicationType.COMMEO
+
+
+
+    def __str__(self):
+        return "Group " + self.device_type.name + " of type: " + self.communicationType.name + " on channel " + str(
+            self.id) + " with name " + self.name

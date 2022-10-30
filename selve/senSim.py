@@ -3,13 +3,13 @@ from selve import SelveTypes, DeviceType, Util, CommunicationType, windDigital, 
 
 
 class SelveSenSim:
-    def __init__(self, id: int, device_type: SelveTypes = SelveTypes.SENSOR,
+    def __init__(self, id: int, device_type: SelveTypes = SelveTypes.SENSIM,
                  device_sub_type: DeviceType = DeviceType.UNKNOWN):
         self.id = id
         self.device_type = device_type
         self.device_sub_type = device_sub_type
         self.mask = Util.singlemask(id)
-        self.name = "None"
+        self.name = "SensorSim " + str(id)
         self.activity = ""
         self.communicationType = CommunicationType.COMMEO
         self.windDigital = windDigital.NONE
