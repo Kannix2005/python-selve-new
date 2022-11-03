@@ -172,7 +172,7 @@ class Selve:
     async def _start(self):
         """Start all looping threads."""
         self.readLoopTask = threading.Thread(target=self._worker)
-        self.readLoopTask.daemon = False
+        self.readLoopTask.daemon = True
         self.readLoopTask.start()
 
     # close the serial port, do the cleanup
@@ -839,81 +839,81 @@ class Selve:
 
     def moveDeviceUp(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommand(CommandDriveUp(device.id, type))
+            self.executeCommandSyncWithResponse(CommandDriveUp(device.id, type))
             device.state = MovementState.UP_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.UP))
+            self.executeCommandSyncWithResponse(IveoManual(device.mask, DriveCommandIveo.UP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
 
     def moveDeviceDown(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommand(CommandDriveDown(device.id, type))
+            self.executeCommandSyncWithResponse(CommandDriveDown(device.id, type))
             device.state = MovementState.DOWN_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.DOWN))
+            self.executeCommandSyncWithResponse(IveoManual(device.mask, DriveCommandIveo.DOWN))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
 
     def moveDevicePos1(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommand(CommandDrivePos1(device.id, type))
+            self.executeCommandSyncWithResponse(CommandDrivePos1(device.id, type))
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.POS1))
+            self.executeCommandSyncWithResponse(IveoManual(device.mask, DriveCommandIveo.POS1))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
 
     def moveDevicePos2(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommand(CommandDrivePos2(device.id, type))
+            self.executeCommandSyncWithResponse(CommandDrivePos2(device.id, type))
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.POS2))
+            self.executeCommandSyncWithResponse(IveoManual(device.mask, DriveCommandIveo.POS2))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
 
     def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
+        self.executeCommandSyncWithResponse(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
         self.updateCommeoDeviceValuesAsync(device.id)
 
     def moveDeviceStepUp(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
+        self.executeCommandSyncWithResponse(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
         self.updateCommeoDeviceValuesAsync(device.id)
 
     def moveDeviceStepDown(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
+        self.executeCommandSyncWithResponse(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
         self.updateCommeoDeviceValuesAsync(device.id)
 
     def stopDevice(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommand(CommandStop(device.id, type))
+            self.executeCommandSyncWithResponse(CommandStop(device.id, type))
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
-            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.STOP))
+            self.executeCommandSyncWithResponse(IveoManual(device.mask, DriveCommandIveo.STOP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 50, SelveTypes.IVEO)
 
     ## Group
     def moveGroupUp(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandDriveUpGroup(group.id, type))
+        self.executeCommandSyncWithResponse(CommandDriveUpGroup(group.id, type))
         for id in Util.b64_mask_to_list(group.mask):
             self.updateCommeoDeviceValuesAsync(id)
 
     def moveGroupDown(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandDriveDownGroup(group.id, type))
+        self.executeCommandSyncWithResponse(CommandDriveDownGroup(group.id, type))
         for id in Util.b64bytes_to_bitlist(group.mask):
             self.updateCommeoDeviceValuesAsync(id)
 
     def stopGroup(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandStopGroup(group.id, type))
+        self.executeCommandSyncWithResponse(CommandStopGroup(group.id, type))
         for id in Util.b64bytes_to_bitlist(group.mask):
             self.updateCommeoDeviceValuesAsync(id)
