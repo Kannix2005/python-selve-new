@@ -80,7 +80,7 @@ class Selve:
         self._loop = loop
 
         self._setup()
-        asyncio.run(self._start())
+        self._start()
 
         if discover:
             self._LOGGER.info("Discovering devices")
@@ -179,10 +179,7 @@ class Selve:
         # self.writer.close()
 
     async def _start(self):
-        """Start all looping threads.
-        """
-        asyncio.set_event_loop(self._loop)
-
+        """Start all looping threads."""
         self.readLoopTask = threading.Thread(target=self._worker)
         self.readLoopTask.daemon = False
         self.readLoopTask.start()
