@@ -38,7 +38,7 @@ from selve.util.protocol import ParameterType
 class Selve:
     """Implementation of the serial communication to the Selve Gateway"""
 
-    def __init__(self, port, loop: asyncio.AbstractEventLoop = None, discover=True, develop=False, logger=None):
+    def __init__(self, port, discover=True, develop=False, logger=None):
         # Gateway state
         self._callbacks = set()
         self.lastLogEvent = None
@@ -69,15 +69,6 @@ class Selve:
         self._writeLock = threading.Lock()
 
         self._LOGGER = logger
-
-        # We have to make sure we are not creating a second event loop and use the provided one
-        if loop is None:
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:  # no event loop running:
-                loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        self._loop = loop
 
         self._setup()
         self._start()
