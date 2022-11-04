@@ -118,33 +118,33 @@ class Selve:
         """Remove previously registered callback."""
         self._callbacks.discard(callback)
 
-    def _worker(self):
+    def _worker(self, selve):
         # Infinite loop to collect all incoming data
-        self._LOGGER.debug("Reader started")
+        selve._LOGGER.debug("Reader started")
         try:
             while True:
-                if not self._pauseReader:
-                    if self._serial.in_waiting > 0:
+                if not selve._pauseReader:
+                    if selve._serial.in_waiting > 0:
                         msg = ""
                         while True:
-                            response = self._serial.readline().strip()
+                            response = selve._serial.readline().strip()
                             msg += response.decode()
                             if response.decode() == '':
                                 break
 
                         # do something with the received data
-                        self.processResponse(msg)
+                        selve.processResponse(msg)
 
                         # if msg.rstrip() == b' ':
-                        self._LOGGER.debug(f'Received: {msg}')
+                        selve._LOGGER.debug(f'Received: {msg}')
 
-                if not self._pauseWriter:
-                    if not self.txQ.empty():
-                        data = self.txQ.get_nowait()
+                if not selve._pauseWriter:
+                    if not selve.txQ.empty():
+                        data = selve.txQ.get_nowait()
 
-                        self._sendCommandToGateway(data)
+                        selve._sendCommandToGateway(data)
 
-                        self.txQ.task_done()
+                        selve.txQ.task_done()
 
                         # always sleep after writing
                         time.sleep(0.5)
@@ -154,7 +154,7 @@ class Selve:
         # serious trouble
         except serial.SerialException:
             # log message
-            self._LOGGER.error('Serial Port RX error')
+            selve._LOGGER.error('Serial Port RX error')
 
     def _sendCommandToGateway(self, command: Command):
         commandstr = command.serializeToXML()
@@ -171,8 +171,8 @@ class Selve:
 
     async def _start(self):
         """Start all looping threads."""
-        self.readLoopTask = threading.Thread(target=self._worker)
-        self.readLoopTask.daemon = True
+        self.readLoopTask = threading.Thread(target=self._worker, args=(self, ))
+        self.readLoopTask.daemon = False
         self.readLoopTask.start()
 
     # close the serial port, do the cleanup
@@ -839,81 +839,81 @@ class Selve:
 
     def moveDeviceUp(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommandSyncWithResponse(CommandDriveUp(device.id, type))
+            self.executeCommand(CommandDriveUp(device.id, type))
             device.state = MovementState.UP_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            self.executeCommandSyncWithResponse(IveoManual(device.mask, DriveCommandIveo.UP))
+            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.UP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
 
     def moveDeviceDown(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommandSyncWithResponse(CommandDriveDown(device.id, type))
+            self.executeCommand(CommandDriveDown(device.id, type))
             device.state = MovementState.DOWN_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            self.executeCommandSyncWithResponse(IveoManual(device.mask, DriveCommandIveo.DOWN))
+            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.DOWN))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
 
     def moveDevicePos1(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommandSyncWithResponse(CommandDrivePos1(device.id, type))
+            self.executeCommand(CommandDrivePos1(device.id, type))
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            self.executeCommandSyncWithResponse(IveoManual(device.mask, DriveCommandIveo.POS1))
+            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.POS1))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
 
     def moveDevicePos2(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommandSyncWithResponse(CommandDrivePos2(device.id, type))
+            self.executeCommand(CommandDrivePos2(device.id, type))
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            self.executeCommandSyncWithResponse(IveoManual(device.mask, DriveCommandIveo.POS2))
+            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.POS2))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
 
     def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
-        self.executeCommandSyncWithResponse(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
+        self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
         self.updateCommeoDeviceValuesAsync(device.id)
 
     def moveDeviceStepUp(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        self.executeCommandSyncWithResponse(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
+        self.executeCommand(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
         self.updateCommeoDeviceValuesAsync(device.id)
 
     def moveDeviceStepDown(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        self.executeCommandSyncWithResponse(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
+        self.executeCommand(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
         self.updateCommeoDeviceValuesAsync(device.id)
 
     def stopDevice(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommandSyncWithResponse(CommandStop(device.id, type))
+            self.executeCommand(CommandStop(device.id, type))
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
-            self.executeCommandSyncWithResponse(IveoManual(device.mask, DriveCommandIveo.STOP))
+            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.STOP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 50, SelveTypes.IVEO)
 
     ## Group
     def moveGroupUp(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        self.executeCommandSyncWithResponse(CommandDriveUpGroup(group.id, type))
+        self.executeCommand(CommandDriveUpGroup(group.id, type))
         for id in Util.b64_mask_to_list(group.mask):
             self.updateCommeoDeviceValuesAsync(id)
 
     def moveGroupDown(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        self.executeCommandSyncWithResponse(CommandDriveDownGroup(group.id, type))
+        self.executeCommand(CommandDriveDownGroup(group.id, type))
         for id in Util.b64bytes_to_bitlist(group.mask):
             self.updateCommeoDeviceValuesAsync(id)
 
     def stopGroup(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        self.executeCommandSyncWithResponse(CommandStopGroup(group.id, type))
+        self.executeCommand(CommandStopGroup(group.id, type))
         for id in Util.b64bytes_to_bitlist(group.mask):
             self.updateCommeoDeviceValuesAsync(id)
