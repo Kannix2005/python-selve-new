@@ -54,7 +54,7 @@ class CommeoDeviceEventResponse(MethodResponse):
         super().__init__(name, parameters)
         #self.name = parameters[0][1] if parameters[0][1] else ""
         self.id = int(parameters[0][1])
-        self.movementState = MovementState(int(parameters[1][1])) if int(parameters[2][1]) and int(parameters[2][1]) < 4 else MovementState(0)        
+        self.actorState = MovementState(int(parameters[1][1])) if int(parameters[2][1]) and int(parameters[2][1]) < 4 else MovementState(0)        
         self.value = Util.valueToPercentage(int(parameters[2][1]))
         self.targetValue = Util.valueToPercentage(int(parameters[3][1]))
         
