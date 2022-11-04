@@ -50,7 +50,7 @@ class IveoLearn(GatewayCommand):
 class IveoManual(GatewayCommand):
     def __init__(self, actorId: int, command: DriveCommandIveo):
         super().__init__(IveoCommand.MANUAL,
-                         [(ParameterType.BASE64, Util.singlemask()(actorId)), (ParameterType.INT, command.value)])
+                         [(ParameterType.BASE64, Util.singlemask(actorId)), (ParameterType.INT, command.value)])
 
 
 class IveoAutomatic(GatewayCommand):
