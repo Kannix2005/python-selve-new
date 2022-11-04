@@ -136,7 +136,7 @@ class CommandGroupManResponse(MethodResponse):
 class CommandResultResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.command = DriveCommandIveo(int(parameters[0][1]))
+        self.command = DriveCommandCommeo(int(parameters[0][1]))
         self.commandType = DeviceCommandType(int(parameters[1][1]))
         self.executed = bool(parameters[2][1])
         self.successIds = [ b for b in Util.true_in_list(Util.b64bytes_to_bitlist(parameters[3][1]))]
