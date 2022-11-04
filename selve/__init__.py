@@ -854,7 +854,7 @@ class Selve:
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.UP))
+            self.executeCommand(IveoManual(device.id, DriveCommandIveo.UP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
 
@@ -866,7 +866,7 @@ class Selve:
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.DOWN))
+            self.executeCommand(IveoManual(device.id, DriveCommandIveo.DOWN))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
 
@@ -876,7 +876,7 @@ class Selve:
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.POS1))
+            self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS1))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
 
@@ -886,7 +886,7 @@ class Selve:
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.POS2))
+            self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS2))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
 
@@ -907,7 +907,7 @@ class Selve:
             self.executeCommand(CommandStop(device.id, type))
             self.updateCommeoDeviceValuesAsync(device.id)
         else:
-            self.executeCommand(IveoManual(device.mask, DriveCommandIveo.STOP))
+            self.executeCommand(IveoManual(device.id, DriveCommandIveo.STOP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 50, SelveTypes.IVEO)
 
