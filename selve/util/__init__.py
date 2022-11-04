@@ -131,7 +131,7 @@ class Util():
     def multimask(self, ids):
         mask = 64 * [0]
         for id in ids:
-            newid = int((int(ids[id]) // 8) * 8  + 7 - (int(ids[id]) % 8))    
+            newid = int((int(id) // 8) * 8  + 7 - (int(id) % 8))    
             mask[newid] = 1
         bitstring = "".join(str(x) for x in mask)
         return base64.b64encode(self.bitstring_to_bytes(bitstring)).decode('utf8')
