@@ -35,6 +35,47 @@ from selve.util.errors import *
 from selve.util.protocol import ParameterType
 
 
+def _worker(selve: Selve):
+    # Infinite loop to collect all incoming data
+    selve._LOGGER.debug("Reader started")
+    try:
+        while True:
+            if not selve._pauseReader:
+                with selve._readLock:
+                    if selve._serial.in_waiting > 0:
+                        msg = ""
+                        while True:
+                            response = selve._serial.readline().strip()
+                            msg += response.decode()
+                            if response.decode() == '':
+                                break
+
+                        # do something with the received data
+                        selve.processResponse(msg)
+
+                        # if msg.rstrip() == b' ':
+                        selve._LOGGER.debug(f'Received: {msg}')
+
+            if not selve._pauseWriter:
+                if not selve.txQ.empty():
+                    with selve._writeLock:
+                        data = selve.txQ.get_nowait()
+
+                        selve._sendCommandToGateway(data)
+
+                        selve.txQ.task_done()
+
+                        # always sleep after writing
+                        time.sleep(0.5)
+
+            time.sleep(0.01)
+    # serial port exceptions, all of these notify that we are in some
+    # serious trouble
+    except serial.SerialException:
+        # log message
+        selve._LOGGER.error('Serial Port RX error')
+
+
 class Selve:
     """Implementation of the serial communication to the Selve Gateway"""
 
@@ -67,11 +108,15 @@ class Selve:
 
         # Write lock to safely write to the gateway
         self._writeLock = threading.Lock()
+        self._readLock = threading.Lock()
 
         self._LOGGER = logger
 
         self._setup()
-        self._start()
+        
+        self.readLoopTask = threading.Thread(target=_worker, args=(self, ))
+        self.readLoopTask.daemon = False
+        self.readLoopTask.start()
 
         if discover:
             self._LOGGER.info("Discovering devices")
@@ -118,44 +163,6 @@ class Selve:
         """Remove previously registered callback."""
         self._callbacks.discard(callback)
 
-    def _worker(self, selve):
-        # Infinite loop to collect all incoming data
-        selve._LOGGER.debug("Reader started")
-        try:
-            while True:
-                if not selve._pauseReader:
-                    if selve._serial.in_waiting > 0:
-                        msg = ""
-                        while True:
-                            response = selve._serial.readline().strip()
-                            msg += response.decode()
-                            if response.decode() == '':
-                                break
-
-                        # do something with the received data
-                        selve.processResponse(msg)
-
-                        # if msg.rstrip() == b' ':
-                        selve._LOGGER.debug(f'Received: {msg}')
-
-                if not selve._pauseWriter:
-                    if not selve.txQ.empty():
-                        data = selve.txQ.get_nowait()
-
-                        selve._sendCommandToGateway(data)
-
-                        selve.txQ.task_done()
-
-                        # always sleep after writing
-                        time.sleep(0.5)
-
-                time.sleep(0.01)
-        # serial port exceptions, all of these notify that we are in some
-        # serious trouble
-        except serial.SerialException:
-            # log message
-            selve._LOGGER.error('Serial Port RX error')
-
     def _sendCommandToGateway(self, command: Command):
         commandstr = command.serializeToXML()
         self._LOGGER.debug('Gateway writing: ' + str(commandstr))
@@ -168,12 +175,6 @@ class Selve:
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
         # self.writer.close()
-
-    async def _start(self):
-        """Start all looping threads."""
-        self.readLoopTask = threading.Thread(target=self._worker, args=(self, ))
-        self.readLoopTask.daemon = False
-        self.readLoopTask.start()
 
     # close the serial port, do the cleanup
     def close(self):
@@ -456,30 +457,31 @@ class Selve:
 
         start_time = time.time()
         while True:
-            if self._serial.in_waiting > 0:
-                msg = ""
-                while True:
-                    response = self._serial.readline().strip()
-                    msg += response.decode()
-                    if response.decode() == '':
-                        break
-                # if msg.rstrip() == b' ':
-                self._LOGGER.debug(f'Received: {msg}')
+            with self._readLock:
+                if self._serial.in_waiting > 0:
+                    msg = ""
+                    while True:
+                        response = self._serial.readline().strip()
+                        msg += response.decode()
+                        if response.decode() == '':
+                            break
+                    # if msg.rstrip() == b' ':
+                    self._LOGGER.debug(f'Received: {msg}')
 
-                self._pauseReader = False
-                self._pauseWriter = False
-                self._pauseWorker = False
+                    self._pauseReader = False
+                    self._pauseWriter = False
+                    self._pauseWorker = False
 
-                resp = self.processResponse(msg)
-                if isinstance(resp, ErrorResponse):
-                    self._LOGGER.error(resp.message)
-                    raise GatewayError
-                else:
-                    #time.sleep(0.5)
-                    return resp
-            if time.time() - start_time > 10:
-                time.sleep(0.05)
-                return None
+                    resp = self.processResponse(msg)
+                    if isinstance(resp, ErrorResponse):
+                        self._LOGGER.error(resp.message)
+                        raise GatewayError
+                    else:
+                        #time.sleep(0.5)
+                        return resp
+                if time.time() - start_time > 10:
+                    time.sleep(0.05)
+                    return None
 
 
     def discover(self):
