@@ -58,15 +58,22 @@ def _worker(selve: Selve):
 
             if not selve._pauseWriter:
                 if not selve.txQ.empty():
-                    with selve._writeLock:
-                        data = selve.txQ.get_nowait()
+                    data: Command = selve.txQ.get_nowait()
+                    commandstr = data.serializeToXML()
+                    selve._LOGGER.debug('Gateway writing: ' + str(commandstr))
+                    try:
+                        with selve._writeLock:
+                            if not selve._serial.is_open:
+                                selve._serial.open()
+                            selve._serial.write(commandstr)
+                            selve._serial.flush()
+                    except Exception as e:
+                        selve._LOGGER.error("error communicating: " + str(e))
 
-                        selve._sendCommandToGateway(data)
+                    selve.txQ.task_done()
 
-                        selve.txQ.task_done()
-
-                        # always sleep after writing
-                        time.sleep(0.5)
+                    # always sleep after writing
+                    time.sleep(0.5)
 
             time.sleep(0.01)
     # serial port exceptions, all of these notify that we are in some
