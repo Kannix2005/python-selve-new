@@ -122,7 +122,7 @@ class Util():
         #Obtains a base64 encoded to modify just one index
         mask =  64 * [0]
         #need to transform the position
-        newid = int((id // 8) * 8  + 7 - (id % 8))    
+        newid = int((int(id) // 8) * 8  + 7 - (int(id) % 8))    
         mask[newid] = 1
         bitstring = "".join(str(x) for x in mask)
         return base64.b64encode(self.bitstring_to_bytes(bitstring)).decode('utf8')
@@ -131,7 +131,7 @@ class Util():
     def multimask(self, ids):
         mask = 64 * [0]
         for id in ids:
-            newid = int((id // 8) * 8  + 7 - (id % 8))    
+            newid = int((int(id) // 8) * 8  + 7 - (int(id) % 8))    
             mask[newid] = 1
         bitstring = "".join(str(x) for x in mask)
         return base64.b64encode(self.bitstring_to_bytes(bitstring)).decode('utf8')
@@ -156,17 +156,17 @@ class Util():
 
     @classmethod
     def valueToPercentage(self, value):
-        return int((value / 65535)*100)
+        return int((int(value) / 65535)*100)
     @classmethod
     def valueToDegrees(self, value):
-        return int((value / 65535)*360)
+        return int((int(value) / 65535)*360)
 
     @classmethod
     def percentageToValue(self, perc):
-        return int((65535/100)*(perc))
+        return int((65535/100)*(int(perc)))
     @classmethod
     def degreesToValue(self, perc):
-        return int((65535/360)*(perc))
+        return int((65535/360)*(int(perc)))
 
     @classmethod
     def intToBoolarray(self, value):
