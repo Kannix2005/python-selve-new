@@ -136,5 +136,5 @@ class IveoResultResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
         self.command = DriveCommandIveo(int(parameters[0][1]))
-        self.state = CommandResultState(int(parameters[2][1]))
-        self.executedIds = [ b for b in Util.true_in_list(Util.b64bytes_to_bitlist(parameters[1][1]))]
+        self.state = CommandResultState(int(parameters[1][1]))
+        self.executedIds = [ b for b in Util.true_in_list(Util.b64bytes_to_bitlist(parameters[2][1]))]
