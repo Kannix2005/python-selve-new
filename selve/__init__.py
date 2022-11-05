@@ -840,6 +840,11 @@ class Selve:
         dev = self.getDevice(id, type)
         dev.value = value
         self.addOrUpdateDevice(dev, type)
+        
+    def setDeviceTargetValue(self, id: int, value: int, type: SelveTypes):
+        dev = self.getDevice(id, type)
+        dev.targetValue = value
+        self.addOrUpdateDevice(dev, type)
 
     def setDeviceState(self, id: int, state: MovementState, type: SelveTypes):
         dev = self.getDevice(id, type)
@@ -857,6 +862,7 @@ class Selve:
             self.executeCommand(IveoManual(device.id, DriveCommandIveo.UP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
+            self.setDeviceTargetValue(device.id, 100, SelveTypes.IVEO)
 
     def moveDeviceDown(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
@@ -868,7 +874,8 @@ class Selve:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
             self.executeCommand(IveoManual(device.id, DriveCommandIveo.DOWN))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
-            self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
+            self.setDeviceValue(device.id, 0, SelveTypes.IVEO)
+            self.setDeviceTargetValue(device.id, 0, SelveTypes.IVEO)
 
     def moveDevicePos1(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
@@ -879,6 +886,7 @@ class Selve:
             self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS1))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
+            self.setDeviceTargetValue(device.id, 33, SelveTypes.IVEO)
 
     def moveDevicePos2(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
@@ -889,6 +897,7 @@ class Selve:
             self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS2))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
+            self.setDeviceTargetValue(device.id, 66, SelveTypes.IVEO)
 
     def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
         self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
@@ -910,6 +919,7 @@ class Selve:
             self.executeCommand(IveoManual(device.id, DriveCommandIveo.STOP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 50, SelveTypes.IVEO)
+            self.setDeviceTargetValue(device.id, 50, SelveTypes.IVEO)
 
     ## Group
     def moveGroupUp(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
