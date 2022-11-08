@@ -86,7 +86,7 @@ def _worker(selve: Selve):
 class Selve:
     """Implementation of the serial communication to the Selve Gateway"""
 
-    def __init__(self, port, discover=True, develop=False, logger=None):
+    def __init__(self, port=None, discover=True, develop=False, logger=None):
         # Gateway state
         self._callbacks = set()
         self.lastLogEvent = None
@@ -133,6 +133,25 @@ class Selve:
         self._LOGGER.info("Setup")
         self.rxQ = queue.Queue()
         self.txQ = queue.Queue()
+
+
+        if self._port is not None:
+            try:
+                self._serial = serial.Serial(
+                    port=self._port,
+                    baudrate=115200,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    xonxoff=False,
+                    rtscts=False,
+                    dsrdtr=False)
+                
+                if self.pingGateway():    
+                    return
+            except Exception:
+                self._LOGGER.error("Configured port not valid!")
+                
 
         available_ports = list_ports.comports()
 
