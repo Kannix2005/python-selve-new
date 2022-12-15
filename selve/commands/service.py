@@ -51,9 +51,9 @@ class ServiceGetVersionResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
         self.serial = str(parameters[0][1])
-        self.version = int(parameters[1][1]) + "." + int(parameters[2][1]) + "." + int(parameters[3][1]) + "." + int(
-            parameters[6][1])
-        self.spec = int(parameters[4][1]) + "." + int(parameters[5][1])
+        self.version = str(int(parameters[1][1])) + "." + str(int(parameters[2][1])) + "." + str(int(parameters[3][1])) + "." + str(int(
+            parameters[6][1]))
+        self.spec = str(int(parameters[4][1])) + "." + str(int(parameters[5][1]))
 
 
 class ServiceResetResponse(MethodResponse):
