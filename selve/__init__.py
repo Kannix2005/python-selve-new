@@ -149,8 +149,10 @@ class Selve:
                 
                 if self.pingGateway():    
                     return
-            except Exception:
-                self._LOGGER.error("Configured port not valid!")
+            except serial.SerialException as e:
+                self._LOGGER.debug("Configured port not valid! " + str(e))
+            except Exception as e:
+                self._LOGGER.error("Unknown exception: " + str(e))
                 
 
         available_ports = list_ports.comports()
