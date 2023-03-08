@@ -200,6 +200,7 @@ class Selve:
                     self._serial.open()
                 self._serial.write(commandstr)
                 self._serial.flush()
+                time.sleep(0.5)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
         # self.writer.close()
@@ -250,6 +251,7 @@ class Selve:
 
         except Exception as e:
             self._LOGGER.error("Error in XML: " + str(e) + " : " + xmlstr)
+            return False
 
     def create_error(self, obj):
         if hasattr(obj, "methodResponse"):
@@ -473,7 +475,16 @@ class Selve:
     def executeCommand(self, command: Command):
         self.txQ.put_nowait(command)
 
+
     def executeCommandSyncWithResponse(self, command: Command):
+        resp = self._executeCommandSyncWithResponse(command)
+        if (resp == False):
+            #something went wrong, try again
+            resp = self._executeCommandSyncWithResponse(command)
+            
+        return resp
+
+    def _executeCommandSyncWithResponse(self, command: Command):
 
         self._pauseWriter = True
         self._pauseReader = True
@@ -501,6 +512,11 @@ class Selve:
                     self._pauseWorker = False
 
                     resp = self.processResponse(msg)
+                    
+                    if (resp == False):
+                        #something went wrong, try again
+                        return False
+                    
                     if isinstance(resp, ErrorResponse):
                         self._LOGGER.error(resp.message)
                         raise GatewayError
@@ -670,10 +686,13 @@ class Selve:
     def pingGateway(self):
         cmd = service.ServicePing()
         methodResponse = self.executeCommandSyncWithResponse(cmd)
-        if hasattr(methodResponse, "name"):
-            if methodResponse.name == "selve.GW.service.ping":
-                self._LOGGER.debug("Ping back")
-                return True
+        try:
+            if hasattr(methodResponse, "name"):
+                if methodResponse.name == "selve.GW.service.ping":
+                    self._LOGGER.debug("Ping back")
+                    return True
+        except:
+            self._LOGGER.debug("Error in ping")
         self._LOGGER.debug("No ping")
         return False
 
