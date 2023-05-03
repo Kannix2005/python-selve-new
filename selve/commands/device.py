@@ -93,7 +93,7 @@ class DeviceGetIdsResponse(MethodResponse):
 class DeviceGetInfoResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.name = parameters[0][1]
+        self.name = parameters[0][1] if parameters[0][1] else "None"
         self.rfAddress = parameters[2][1]
         self.deviceType = DeviceType(int(parameters[3][1])) if int(parameters[3][1]) else DeviceType(0)
         self.state = DeviceState(int(parameters[4][1]))

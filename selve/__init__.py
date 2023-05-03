@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from distutils.fancy_getopt import FancyGetopt
 import queue
 import threading
 import time
 from itertools import chain
+from tkinter import E
 from typing import Callable
 
 import serial
@@ -172,13 +174,19 @@ class Selve:
                     xonxoff=False,
                     rtscts=False,
                     dsrdtr=False)
-                if self.pingGateway():
-                    self._port = p.name
-                    return
-                else:
-                    self._serial = None
-            except PortError:
+            except Exception as e:
+                self._LOGGER.error("Error at com port: " + str(e))
+                try:
+                    self._serial.close()
+                except:
+                    self._LOGGER.debug("Cannot close com port")
                 pass
+            if self.pingGateway():
+                self._port = p.name
+                return
+            else:
+                self._serial.close()
+                self._serial = None
         else:
             self._LOGGER.error("No gateway on comports found!")
             raise PortError
@@ -859,21 +867,21 @@ class Selve:
         
     def updateCommeoDeviceValuesFromResponse(self, id: int, response: DeviceGetValuesResponse):
         dev = self.getDevice(id, SelveTypes.DEVICE)
-        dev.name = response.name
-        dev.state = response.movementState
-        dev.value = response.value
-        dev.targetValue = response.targetValue
-        dev.unreachable = response.unreachable
-        dev.overload = response.overload
-        dev.obstructed = response.obstructed
-        dev.alarm = response.alarm
-        dev.lostSensor = response.lostSensor
-        dev.automaticMode = response.automaticMode
-        dev.gatewayNotLearned = response.gatewayNotLearned
-        dev.windAlarm = response.windAlarm
-        dev.rainAlarm = response.rainAlarm
-        dev.freezingAlarm = response.freezingAlarm
-        dev.dayMode = response.dayMode
+        dev.name = response.name if response.name else "None"
+        dev.state = response.movementState if response.movementState else MovementState.UNKOWN.value
+        dev.value = response.value if response.value else 0
+        dev.targetValue = response.targetValue if response.targetValue else 0
+        dev.unreachable = response.unreachable if response.unreachable else True
+        dev.overload = response.overload if response.overload else False
+        dev.obstructed = response.obstructed if response.obstructed else False
+        dev.alarm = response.alarm if response.alarm else False
+        dev.lostSensor = response.lostSensor if response.lostSensor else False
+        dev.automaticMode = response.automaticMode if response.automaticMode else False
+        dev.gatewayNotLearned = response.gatewayNotLearned if response.gatewayNotLearned else False
+        dev.windAlarm = response.windAlarm if response.windAlarm else False
+        dev.rainAlarm = response.rainAlarm if response.rainAlarm else False
+        dev.freezingAlarm = response.freezingAlarm if response.freezingAlarm else False
+        dev.dayMode = response.dayMode if response.dayMode else False
         self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
         
     def setDeviceValue(self, id: int, value: int, type: SelveTypes):
