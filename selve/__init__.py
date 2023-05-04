@@ -6,7 +6,6 @@ import queue
 import threading
 import time
 from itertools import chain
-from tkinter import E
 from typing import Callable
 
 import serial
