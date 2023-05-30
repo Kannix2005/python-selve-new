@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from distutils.fancy_getopt import FancyGetopt
 import queue
 import threading
 import time
@@ -225,7 +224,7 @@ class Selve:
                     self._serial.open()
                 self._serial.write(commandstr)
                 self._serial.flush()
-                time.sleep(0.2)
+                time.sleep(0.5)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
@@ -510,9 +509,6 @@ class Selve:
             self._serial.open()
 
         self._sendCommandToGateway(command)
-
-        while(self._serial.in_waiting <= 0):
-            time.sleep(0.05)
 
         start_time = time.time()
         while True:
@@ -1005,8 +1001,6 @@ class Selve:
     ### Sensor
     def updateSensorValuesAsync(self, id: int):
         self.executeCommand(SensorGetValues(id))
-
-
 
     ### SenSim
     def updateSenSimValuesAsync(self, id: int):
