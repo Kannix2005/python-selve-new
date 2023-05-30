@@ -545,6 +545,9 @@ class Selve:
 
 
     def discover(self):
+
+        self._stopThread = True
+
         if self.gatewayReady():
             iveoIds: IveoGetIdsResponse = self.executeCommandSyncWithResponse(IveoGetIds())
             deviceIds: DeviceGetIdsResponse = self.executeCommandSyncWithResponse(DeviceGetIds())
@@ -642,6 +645,9 @@ class Selve:
                 device.sun2Analog = config.sun2Analog
                 device.sun3Analog = config.sun3Analog
                 self.addOrUpdateDevice(device, SelveTypes.SENSIM)
+        self.readLoopTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread))
+        self.readLoopTask.daemon = False
+        self.readLoopTask.start()
         self.list_devices()
 
 
