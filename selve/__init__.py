@@ -36,13 +36,15 @@ from selve.util.errors import *
 from selve.util.protocol import ParameterType
 
 
-def _worker(selve: Selve):
+def _worker(selve: Selve, stop):
     # Infinite loop to collect all incoming data
     selve._LOGGER.debug("Reader started")
     try:
         while True:
             if not selve._pauseReader:
                 with selve._readLock:
+                    if not selve._serial.is_open:
+                        selve._serial.open()
                     if selve._serial.in_waiting > 0:
                         msg = ""
                         while True:
@@ -77,6 +79,10 @@ def _worker(selve: Selve):
                     time.sleep(0.5)
 
             time.sleep(0.01)
+            if stop():
+                selve._LOGGER.debug('Exiting worker loop...')
+                break
+        return True
     # serial port exceptions, all of these notify that we are in some
     # serious trouble
     except serial.SerialException:
@@ -92,6 +98,7 @@ class Selve:
         self._callbacks = set()
         self.lastLogEvent = None
         self.state = None
+        self._stopThread = False
 
         # Data from Duty Cycle Event
         self.utilization = 0
@@ -122,7 +129,7 @@ class Selve:
 
         self._setup()
         
-        self.readLoopTask = threading.Thread(target=_worker, args=(self, ))
+        self.readLoopTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread))
         self.readLoopTask.daemon = False
         self.readLoopTask.start()
 
@@ -190,6 +197,17 @@ class Selve:
             self._LOGGER.error("No gateway on comports found!")
             raise PortError
 
+    def stopGateway(self):
+        # wait for the rx/tx thread to end, these need to be gathered to
+        # collect all the exceptions
+        self._stopThread = True
+        self.readLoopTask.join()
+        # close the serial port, do the cleanup
+        if self._serial.is_open:
+            self._serial.close()
+        self._serial = None
+
+
     def register_callback(self, callback: Callable[[], None]) -> None:
         """Register callback, called when Roller changes state."""
         self._callbacks.add(callback)
@@ -207,17 +225,9 @@ class Selve:
                     self._serial.open()
                 self._serial.write(commandstr)
                 self._serial.flush()
-                time.sleep(0.5)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
         # self.writer.close()
-
-    # close the serial port, do the cleanup
-    def close(self):
-        # wait for the rx/tx thread to end, these need to be gathered to
-        # collect all the exceptions
-        self.readLoopTask.join(5)
-        self._serial.close()
 
     def processResponse(self, xmlstr):
         """Processes an XML String into a response object."""
@@ -501,6 +511,9 @@ class Selve:
 
         self._sendCommandToGateway(command)
 
+        while(self._serial.in_waiting <= 0):
+            time.sleep(0.05)
+
         start_time = time.time()
         while True:
             with self._readLock:
@@ -640,11 +653,11 @@ class Selve:
         for device in self.devices[SelveTypes.DEVICE.value]:
             self.updateCommeoDeviceValues(device.id)
         for sensor in self.devices[SelveTypes.SENSOR.value]:
-            pass
+            self.updateSensorValuesAsync(sensor.id)
         for senSim in self.devices[SelveTypes.SENSIM.value]:
-            pass
+            self.updateSenSimValuesAsync(senSim.id)
         for sender in self.devices[SelveTypes.SENDER.value]:
-            pass
+            self.updateSenderValuesAsync(sender.id)
 
 
 
@@ -773,6 +786,10 @@ class Selve:
                 self._LOGGER.info("Error: Gateway could not be reset or loads too long")
             pass
         self._LOGGER.info("Gateway reset")
+
+    def setEvents(self, eventDevice = False, eventSensor = False, eventSender = False, eventLogging = False, eventDuty = False):
+        command = param.ParamSetEvent(eventDevice, eventSensor, eventSender, eventLogging, eventDuty)
+        self.executeCommand(command)
 
     def processEventResponse(self, response):
         if isinstance(response, CommeoDeviceEventResponse):
@@ -983,3 +1000,18 @@ class Selve:
         self.executeCommand(CommandStopGroup(group.id, type))
         for id in Util.b64bytes_to_bitlist(group.mask):
             self.updateCommeoDeviceValuesAsync(id)
+
+
+    ### Sensor
+    def updateSensorValuesAsync(self, id: int):
+        self.executeCommand(SensorGetValues(id))
+
+
+
+    ### SenSim
+    def updateSenSimValuesAsync(self, id: int):
+        self.executeCommand(SenSimGetValues(id))
+
+    ### Sender
+    def updateSenderValuesAsync(self, id: int):
+        self.executeCommand(SenderGetValues(id))
