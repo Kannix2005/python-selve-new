@@ -225,9 +225,9 @@ class Selve:
                     self._serial.open()
                 self._serial.write(commandstr)
                 self._serial.flush()
+                time.sleep(0.2)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
-        # self.writer.close()
 
     def processResponse(self, xmlstr):
         """Processes an XML String into a response object."""
