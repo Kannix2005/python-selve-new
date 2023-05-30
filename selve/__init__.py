@@ -489,6 +489,12 @@ class Selve:
         return MethodResponse(methodName, flat_params_list)
 
     def executeCommand(self, command: Command):
+        if not self.readLoopTask.is_alive():
+            self._stopThread = False
+            self.readLoopTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread))
+            self.readLoopTask.daemon = False
+            self.readLoopTask.start()
+
         self.txQ.put_nowait(command)
 
 
