@@ -645,6 +645,7 @@ class Selve:
                 device.sun2Analog = config.sun2Analog
                 device.sun3Analog = config.sun3Analog
                 self.addOrUpdateDevice(device, SelveTypes.SENSIM)
+        self._stopThread = False
         self.readLoopTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread))
         self.readLoopTask.daemon = False
         self.readLoopTask.start()
