@@ -541,7 +541,11 @@ class Selve:
                     
                     if isinstance(resp, ErrorResponse):
                         self._LOGGER.error(resp.message)
-                        raise GatewayError
+                        # retry
+                        try:
+                            return self._executeCommandSyncWithResponse(self, command)
+                        except GatewayError as e:
+                            raise e
                     else:
                         #time.sleep(0.5)
                         return resp
