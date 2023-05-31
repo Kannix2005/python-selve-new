@@ -299,7 +299,7 @@ class Selve:
 
     def _create_response(self, array, methodName = ""):
         str_params = []
-        if hasattr(array, ParameterType.STRING.value):
+        if hasattr(array, str(ParameterType.STRING.value)):
             if methodName == "":
                 methodName = list(array.string)[0].cdata
             str_params_tmp = list(array.string)[1:]
