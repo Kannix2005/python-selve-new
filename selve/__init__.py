@@ -528,28 +528,13 @@ class Selve:
         self._pauseWriter = True
         self._pauseReader = True
         self._pauseWorker = True
-        # This checks and waits for 10s if the worker really stops
-        start_time_events = time.time()
-        while not self._pauseReaderEvent.is_set():
-            if time.time() - start_time_events > 10:
-                break
-            else:
-                time.sleep(0.05)
-
-        start_time_events = time.time()
-        while not self._pauseWriterEvent.is_set():
-            if time.time() - start_time_events > 10:
-                break
-            else:
-                time.sleep(0.05)
-
-        start_time_events = time.time()
-        while not self._pauseWorkerEvent.is_set():
-            if time.time() - start_time_events > 10:
-                break
-            else:
-                time.sleep(0.05)
-
+        # This checks if the worker really stops
+        if not self._pauseReaderEvent.is_set():
+            time.sleep(0.05)
+        if not self._pauseWriterEvent.is_set():
+            time.sleep(0.05)
+        if not self._pauseWorkerEvent.is_set():
+            time.sleep(0.05)
 
         if not self._serial.is_open:
             self._serial.open()
