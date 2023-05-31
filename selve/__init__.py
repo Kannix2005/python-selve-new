@@ -75,9 +75,8 @@ def _worker(selve: Selve, stop, pauseReader, pauseWriter, pauseWorker):
 
                         selve.txQ.task_done()
 
-                        # always sleep after writing if buffer not empty
-                        while selve._serial.out_waiting is not 0:
-                            time.sleep(0.5)
+                        # always sleep after writing
+                        time.sleep(0.5)
 
             time.sleep(0.01)
             if stop():
@@ -226,9 +225,8 @@ class Selve:
                     self._serial.open()
                 self._serial.write(commandstr)
                 self._serial.flush()
-                # always sleep after writing if buffer not empty
-                while self._serial.out_waiting is not 0:
-                    time.sleep(0.5)
+                # always sleep after writing
+                time.sleep(0.5)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
