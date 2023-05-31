@@ -78,7 +78,7 @@ class Selve:
         self._LOGGER = logger
 
         self._setup()
-        
+        self.workerTask = None
         self.startWorker()
 
         if discover:
