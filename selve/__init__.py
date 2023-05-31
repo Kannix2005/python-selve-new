@@ -141,8 +141,7 @@ class Selve:
 
         self._setup()
         
-        self.workerTask = threading.Thread(target=_worker, args=(lambda: self, lambda: self._stopThread, lambda: self._pauseReader, lambda: self._pauseWriter, lambda: self._pauseWorker, lambda: self._readLock, lambda: self._writeLock))
-        self.workerTask.daemon = True
+        self.workerTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread, lambda: self._pauseReader, lambda: self._pauseWriter, lambda: self._pauseWorker, lambda: self._readLock, lambda: self._writeLock), daemon=True)
         self.workerTask.start()
 
         if discover:
