@@ -543,7 +543,7 @@ class Selve:
                         self._LOGGER.error(resp.message)
                         # retry
                         try:
-                            return self._executeCommandSyncWithResponse(self, command)
+                            return self._executeCommandSyncWithResponse(command)
                         except GatewayError as e:
                             raise e
                     else:
