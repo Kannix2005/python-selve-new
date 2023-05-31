@@ -79,8 +79,7 @@ class Selve:
 
         self._setup()
         
-        self.workerTask = threading.Thread(target=self._worker, args=(), daemon=True)
-        self.workerTask.start()
+        self.startWorker()
 
         if discover:
             self._LOGGER.info("Discovering devices")
@@ -89,7 +88,7 @@ class Selve:
     
     def _worker(self):
         # Infinite loop to collect all incoming data
-        self._LOGGER.debug("Reader started")
+        self._LOGGER.debug("Worker started")
         try:
             while True:
                 if not self._pauseWorker:
@@ -111,9 +110,11 @@ class Selve:
                                 self.processResponse(msg)
 
                                 # if msg.rstrip() == b' ':
-                                self._LOGGER.debug(f'Received: {msg}')
+                                self._LOGGER.debug(f'Received: {msg}')    
+                            self._serial.close()
                     else:
                         self._pauseReaderEvent.set()
+                        self._LOGGER.debug("Reader stopped")
                     if not self._pauseWriter:
                         self._pauseWriterEvent.clear()
                         if not self.txQ.empty():
@@ -126,6 +127,7 @@ class Selve:
                                         self._serial.open()
                                     self._serial.write(commandstr)
                                     self._serial.flush()
+                                    self._serial.close()
                             except Exception as e:
                                 self._LOGGER.error("error communicating: " + str(e))
 
@@ -135,6 +137,7 @@ class Selve:
                             time.sleep(1)
                     else:
                         self._pauseWriterEvent.set()
+                        self._LOGGER.debug("Writer stopped")
                 else:
                     self._pauseWorkerEvent.set()
                 time.sleep(0.01)
@@ -209,9 +212,24 @@ class Selve:
             self._LOGGER.error("No gateway on comports found!")
             raise PortError
 
+    def startWorker(self):
+        self._LOGGER.debug("Starting worker")
+        self.workerTask = threading.Thread(target=self._worker, args=(), daemon=True)
+        self.workerTask.start()
+
+    def stopWorker(self):
+        self._LOGGER.debug("Stopping worker")
+        self._pauseReader = True
+        self._pauseWriter = True
+        self._pauseWorker = True
+        self._stopThread = True
+        self.workerTask.join()
+
+
     def stopGateway(self):
         # wait for the rx/tx thread to end, these need to be gathered to
         # collect all the exceptions
+        self._LOGGER.debug("Preparing for termination")
         self._stopThread = True
         self.workerTask.join()
         # close the serial port, do the cleanup
@@ -235,6 +253,7 @@ class Selve:
             with self._writeLock:
                 if not self._serial.is_open:
                     self._serial.open()
+                self._serial.flush()
                 self._serial.write(commandstr)
                 self._serial.flush()
                 # always sleep after writing
@@ -525,19 +544,14 @@ class Selve:
 
     def _executeCommandSyncWithResponse(self, command: Command):
 
-        self._pauseWriter = True
-        self._pauseReader = True
-        self._pauseWorker = True
-        # This checks if the worker really stops
-        if not self._pauseReaderEvent.is_set():
-            time.sleep(0.05)
-        if not self._pauseWriterEvent.is_set():
-            time.sleep(0.05)
-        if not self._pauseWorkerEvent.is_set():
-            time.sleep(0.05)
+        self.stopWorker()
 
         if not self._serial.is_open:
             self._serial.open()
+
+        #guarantee exclusivity
+        self._serial.reset_input_buffer()
+        self._serial.reset_output_buffer()
 
         self._sendCommandToGateway(command)
 
@@ -553,11 +567,9 @@ class Selve:
                             break
                     # if msg.rstrip() == b' ':
                     self._LOGGER.debug(f'Received: {msg}')
-
-                    self._pauseReader = False
-                    self._pauseWriter = False
-                    self._pauseWorker = False
-
+                    self._serial.close()
+                    self.startWorker()
+    
                     resp = self.processResponse(msg)
                     
                     if (resp == False):
