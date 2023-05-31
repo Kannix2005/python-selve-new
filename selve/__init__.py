@@ -35,14 +35,16 @@ from selve.util.errors import *
 from selve.util.protocol import ParameterType
 
 
-def _worker(selve: Selve, stop, pauseReader, pauseWriter, pauseWorker):
+def _worker(selve: Selve, stop, pauseReader, pauseWriter, pauseWorker, readLock, writeLock):
     # Infinite loop to collect all incoming data
     selve._LOGGER.debug("Reader started")
     try:
         while True:
             if not pauseWorker:
+                selve._pauseWorkerEvent.clear()
                 if not pauseReader:
-                    with selve._readLock:
+                    selve._pauseReaderEvent.clear()
+                    with readLock:
                         if not selve._serial.is_open:
                             selve._serial.open()
                         if selve._serial.in_waiting > 0:
@@ -58,14 +60,16 @@ def _worker(selve: Selve, stop, pauseReader, pauseWriter, pauseWorker):
 
                             # if msg.rstrip() == b' ':
                             selve._LOGGER.debug(f'Received: {msg}')
-
+                else:
+                    selve._pauseReaderEvent.set()
                 if not pauseWriter:
+                    selve._pauseWriterEvent.clear()
                     if not selve.txQ.empty():
                         data: Command = selve.txQ.get_nowait()
                         commandstr = data.serializeToXML()
                         selve._LOGGER.debug('Gateway writing: ' + str(commandstr))
                         try:
-                            with selve._writeLock:
+                            with writeLock:
                                 if not selve._serial.is_open:
                                     selve._serial.open()
                                 selve._serial.write(commandstr)
@@ -76,8 +80,11 @@ def _worker(selve: Selve, stop, pauseReader, pauseWriter, pauseWorker):
                         selve.txQ.task_done()
 
                         # always sleep after writing
-                        time.sleep(0.5)
-
+                        time.sleep(1)
+                else:
+                    selve._pauseWriterEvent.set()
+            else:
+                selve._pauseWorkerEvent.set()
             time.sleep(0.01)
             if stop():
                 selve._LOGGER.debug('Exiting worker loop...')
@@ -116,7 +123,12 @@ class Selve:
 
         # Flags for enabling reader and writer in the worker thread
         self._pauseReader = False
+        self._pauseReaderEvent = threading.Event()
         self._pauseWriter = False
+        self._pauseWriterEvent = threading.Event()
+        self._pauseWorker = False
+        self._pauseWorkerEvent = threading.Event()
+        
 
         # Port where the Selve gateway was found
         self._port = port
@@ -129,9 +141,9 @@ class Selve:
 
         self._setup()
         
-        self.readLoopTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread, lambda: self._pauseReader, lambda: self._pauseWriter, lambda: self._pauseWorker))
-        self.readLoopTask.daemon = False
-        self.readLoopTask.start()
+        self.workerTask = threading.Thread(target=_worker, args=(lambda: self, lambda: self._stopThread, lambda: self._pauseReader, lambda: self._pauseWriter, lambda: self._pauseWorker, lambda: self._readLock, lambda: self._writeLock))
+        self.workerTask.daemon = True
+        self.workerTask.start()
 
         if discover:
             self._LOGGER.info("Discovering devices")
@@ -201,7 +213,7 @@ class Selve:
         # wait for the rx/tx thread to end, these need to be gathered to
         # collect all the exceptions
         self._stopThread = True
-        self.readLoopTask.join()
+        self.workerTask.join()
         # close the serial port, do the cleanup
         if self._serial.is_open:
             self._serial.close()
@@ -226,7 +238,7 @@ class Selve:
                 self._serial.write(commandstr)
                 self._serial.flush()
                 # always sleep after writing
-                time.sleep(0.5)
+                time.sleep(1)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
@@ -499,12 +511,7 @@ class Selve:
         return MethodResponse(methodName, flat_params_list)
 
     def executeCommand(self, command: Command):
-        if not self.readLoopTask.is_alive():
-            self._stopThread = False
-            self.readLoopTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread))
-            self.readLoopTask.daemon = False
-            self.readLoopTask.start()
-
+        self._pauseWorker = False
         self.txQ.put_nowait(command)
 
 
@@ -521,6 +528,29 @@ class Selve:
         self._pauseWriter = True
         self._pauseReader = True
         self._pauseWorker = True
+        # This checks and waits for 10s if the worker really stops
+        start_time_events = time.time()
+        while not self._pauseReaderEvent.is_set():
+            if time.time() - start_time_events > 10:
+                break
+            else:
+                time.sleep(0.05)
+
+        start_time_events = time.time()
+        while not self._pauseWriterEvent.is_set():
+            if time.time() - start_time_events > 10:
+                break
+            else:
+                time.sleep(0.05)
+
+        start_time_events = time.time()
+        while not self._pauseWorkerEvent.is_set():
+            if time.time() - start_time_events > 10:
+                break
+            else:
+                time.sleep(0.05)
+
+
         if not self._serial.is_open:
             self._serial.open()
 
@@ -555,8 +585,10 @@ class Selve:
                         return False
 
                     return resp
-                if time.time() - start_time > 10:
+                # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent
+                if time.time() - start_time < 10:
                     time.sleep(0.05)
+                else:
                     return None
 
 
