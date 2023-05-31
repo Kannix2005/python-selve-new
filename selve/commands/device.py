@@ -102,11 +102,12 @@ class DeviceGetInfoResponse(MethodResponse):
 class DeviceGetValuesResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.movementState = MovementState(int(parameters[1][1])) if int(parameters[1][1]) else MovementState(0)
-        self.value = Util.valueToPercentage(int(parameters[2][1]))
-        self.targetValue = Util.valueToPercentage(int(parameters[3][1]))
+        self.name = parameters[0][1] if parameters[0][1] else ""
+        self.movementState = MovementState(int(parameters[2][1])) if int(parameters[2][1]) else MovementState(0)
+        self.value = Util.valueToPercentage(int(parameters[3][1]))
+        self.targetValue = Util.valueToPercentage(int(parameters[4][1]))
 
-        bArr = Util.intToBoolarray(int(parameters[4][1]))
+        bArr = Util.intToBoolarray(int(parameters[5][1]))
         self.unreachable = bArr[0]
         self.overload = bArr[1]
         self.obstructed = bArr[2]
@@ -118,7 +119,7 @@ class DeviceGetValuesResponse(MethodResponse):
         self.rainAlarm = bArr[8]
         self.freezingAlarm = bArr[9]
 
-        self.dayMode = DayMode(int(parameters[5][1]))
+        self.dayMode = DayMode(int(parameters[6][1]))
 
 
 class DeviceSetFunctionResponse(MethodResponse):
