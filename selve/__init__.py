@@ -35,68 +35,6 @@ from selve.util.errors import *
 from selve.util.protocol import ParameterType
 
 
-def _worker(selve: Selve, stop, pauseReader, pauseWriter, pauseWorker, readLock, writeLock):
-    # Infinite loop to collect all incoming data
-    selve._LOGGER.debug("Reader started")
-    try:
-        while True:
-            if not pauseWorker:
-                selve._pauseWorkerEvent.clear()
-                if not pauseReader:
-                    selve._pauseReaderEvent.clear()
-                    with readLock:
-                        if not selve._serial.is_open:
-                            selve._serial.open()
-                        if selve._serial.in_waiting > 0:
-                            msg = ""
-                            while True:
-                                response = selve._serial.readline().strip()
-                                msg += response.decode()
-                                if response.decode() == '':
-                                    break
-
-                            # do something with the received data
-                            selve.processResponse(msg)
-
-                            # if msg.rstrip() == b' ':
-                            selve._LOGGER.debug(f'Received: {msg}')
-                else:
-                    selve._pauseReaderEvent.set()
-                if not pauseWriter:
-                    selve._pauseWriterEvent.clear()
-                    if not selve.txQ.empty():
-                        data: Command = selve.txQ.get_nowait()
-                        commandstr = data.serializeToXML()
-                        selve._LOGGER.debug('Gateway writing: ' + str(commandstr))
-                        try:
-                            with writeLock:
-                                if not selve._serial.is_open:
-                                    selve._serial.open()
-                                selve._serial.write(commandstr)
-                                selve._serial.flush()
-                        except Exception as e:
-                            selve._LOGGER.error("error communicating: " + str(e))
-
-                        selve.txQ.task_done()
-
-                        # always sleep after writing
-                        time.sleep(1)
-                else:
-                    selve._pauseWriterEvent.set()
-            else:
-                selve._pauseWorkerEvent.set()
-            time.sleep(0.01)
-            if stop():
-                selve._LOGGER.debug('Exiting worker loop...')
-                break
-        return True
-    # serial port exceptions, all of these notify that we are in some
-    # serious trouble
-    except serial.SerialException:
-        # log message
-        selve._LOGGER.error('Serial Port RX error')
-
-
 class Selve:
     """Implementation of the serial communication to the Selve Gateway"""
 
@@ -141,12 +79,75 @@ class Selve:
 
         self._setup()
         
-        self.workerTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread, lambda: self._pauseReader, lambda: self._pauseWriter, lambda: self._pauseWorker, lambda: self._readLock, lambda: self._writeLock), daemon=True)
+        self.workerTask = threading.Thread(target=self._worker, args=(), daemon=True)
         self.workerTask.start()
 
         if discover:
             self._LOGGER.info("Discovering devices")
             self.discover()
+
+    
+    def _worker(self):
+        # Infinite loop to collect all incoming data
+        self._LOGGER.debug("Reader started")
+        try:
+            while True:
+                if not self._pauseWorker:
+                    self._pauseWorkerEvent.clear()
+                    if not self._pauseReader:
+                        self._pauseReaderEvent.clear()
+                        with self._readLock:
+                            if not self._serial.is_open:
+                                self._serial.open()
+                            if self._serial.in_waiting > 0:
+                                msg = ""
+                                while True:
+                                    response = self._serial.readline().strip()
+                                    msg += response.decode()
+                                    if response.decode() == '':
+                                        break
+
+                                # do something with the received data
+                                self.processResponse(msg)
+
+                                # if msg.rstrip() == b' ':
+                                self._LOGGER.debug(f'Received: {msg}')
+                    else:
+                        self._pauseReaderEvent.set()
+                    if not self._pauseWriter:
+                        self._pauseWriterEvent.clear()
+                        if not self.txQ.empty():
+                            data: Command = self.txQ.get_nowait()
+                            commandstr = data.serializeToXML()
+                            self._LOGGER.debug('Gateway writing: ' + str(commandstr))
+                            try:
+                                with self._writeLock:
+                                    if not self._serial.is_open:
+                                        self._serial.open()
+                                    self._serial.write(commandstr)
+                                    self._serial.flush()
+                            except Exception as e:
+                                self._LOGGER.error("error communicating: " + str(e))
+
+                            self.txQ.task_done()
+
+                            # always sleep after writing
+                            time.sleep(1)
+                    else:
+                        self._pauseWriterEvent.set()
+                else:
+                    self._pauseWorkerEvent.set()
+                time.sleep(0.01)
+                if self._stopThread:
+                    self._LOGGER.debug('Exiting worker loop...')
+                    break
+            return True
+        # serial port exceptions, all of these notify that we are in some
+        # serious trouble
+        except serial.SerialException:
+            # log message
+            self._LOGGER.error('Serial Port RX error')
+
 
     def _setup(self):
         self._LOGGER.info("Setup")
