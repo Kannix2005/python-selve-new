@@ -67,6 +67,8 @@ class Selve:
         self._pauseWorker = False
         self._pauseWorkerEvent = threading.Event()
         
+        # The worker thread
+        self.workerTask = None
 
         # Port where the Selve gateway was found
         self._port = port
@@ -78,7 +80,6 @@ class Selve:
         self._LOGGER = logger
 
         self._setup()
-        self.workerTask = None
         self.startWorker()
 
         if discover:
@@ -214,6 +215,10 @@ class Selve:
 
     def startWorker(self):
         self._LOGGER.debug("Starting worker")
+        self._pauseReader = False
+        self._pauseWriter = False
+        self._pauseWorker = False
+        self._stopThread = False
         self.workerTask = threading.Thread(target=self._worker, args=(), daemon=True)
         self.workerTask.start()
 
@@ -223,7 +228,9 @@ class Selve:
         self._pauseWriter = True
         self._pauseWorker = True
         self._stopThread = True
-        self.workerTask.join()
+        if self.workerTask is not None and self.workerTask.is_alive():
+            self.workerTask.join()
+        self.workerTask = None
 
 
     def stopGateway(self):
