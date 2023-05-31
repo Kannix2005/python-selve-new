@@ -238,6 +238,10 @@ class Selve:
         xmlstr = str(xmlstr).replace('<?xml version="1.0"? encoding="UTF-8">', '<?xml version="1.0" encoding="UTF-8"?>')
         try:
             res = untangle.parse(xmlstr)
+        except Exception as e:
+            self._LOGGER.error("Error in XML: " + str(e) + " : " + xmlstr)
+            return False
+        try:
             if not hasattr(res, 'methodResponse') and not hasattr(res, 'methodCall'):
                 self._LOGGER.error("Bad response format")
                 return None
@@ -248,6 +252,10 @@ class Selve:
                     response = self.create_response(res)
             else:
                 response = self.create_response_call(res)
+        except Exception as e:
+            self._LOGGER.error("Error in response creation: " + str(e) + " : " + xmlstr)
+            return False
+        try:
             # if it's a MethodResponse, it has not been sent by the gateway itself, so we can safely return it
             # otherwise it's an event, and we have to process it accordingly
             if isinstance(response, CommeoDeviceEventResponse) \
@@ -266,7 +274,7 @@ class Selve:
             return response
 
         except Exception as e:
-            self._LOGGER.error("Error in XML: " + str(e) + " : " + xmlstr)
+            self._LOGGER.error("Error in response processing: " + str(e) + " : " + xmlstr)
             return False
 
     def create_error(self, obj):
