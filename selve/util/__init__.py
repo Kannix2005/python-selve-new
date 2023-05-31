@@ -52,13 +52,13 @@ class CommeoCommandResult(MethodResponse):
 class CommeoDeviceEventResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.name = parameters[0][1] if parameters[0][1] else ""
-        self.id = int(parameters[1][1])
-        self.actorState = MovementState(int(parameters[2][1])) if int(parameters[2][1]) and int(parameters[2][1]) < 4 else MovementState(0)        
-        self.value = Util.valueToPercentage(int(parameters[3][1]))
-        self.targetValue = Util.valueToPercentage(int(parameters[4][1]))
+        #self.name = parameters[0][1] if parameters[0][1] else ""
+        self.id = int(parameters[0][1])
+        self.actorState = MovementState(int(parameters[1][1])) if int(parameters[1][1]) and int(parameters[1][1]) < 4 else MovementState(0)        
+        self.value = Util.valueToPercentage(int(parameters[2][1]))
+        self.targetValue = Util.valueToPercentage(int(parameters[3][1]))
         
-        bArr = Util.intToBoolarray(int(parameters[5][1]))
+        bArr = Util.intToBoolarray(int(parameters[4][1]))
         self.unreachable = bArr[0]
         self.overload = bArr[1]
         self.obstructed = bArr[2]
@@ -69,8 +69,8 @@ class CommeoDeviceEventResponse(MethodResponse):
         self.windAlarm = bArr[7]
         self.rainAlarm = bArr[8]
         self.freezingAlarm = bArr[9]
-        self.dayMode = DayMode(int(parameters[6][1]))
-        self.deviceType = DeviceType(int(parameters[7][1]))
+        self.dayMode = DayMode(int(parameters[5][1]))
+        self.deviceType = DeviceType(int(parameters[6][1]))
 
 class LogEventResponse(MethodResponse):
     def __init__(self, name, parameters):
