@@ -35,47 +35,49 @@ from selve.util.errors import *
 from selve.util.protocol import ParameterType
 
 
-def _worker(selve: Selve, stop):
+def _worker(selve: Selve, stop, pauseReader, pauseWriter, pauseWorker):
     # Infinite loop to collect all incoming data
     selve._LOGGER.debug("Reader started")
     try:
         while True:
-            if not selve._pauseReader:
-                with selve._readLock:
-                    if not selve._serial.is_open:
-                        selve._serial.open()
-                    if selve._serial.in_waiting > 0:
-                        msg = ""
-                        while True:
-                            response = selve._serial.readline().strip()
-                            msg += response.decode()
-                            if response.decode() == '':
-                                break
+            if not pauseWorker:
+                if not pauseReader:
+                    with selve._readLock:
+                        if not selve._serial.is_open:
+                            selve._serial.open()
+                        if selve._serial.in_waiting > 0:
+                            msg = ""
+                            while True:
+                                response = selve._serial.readline().strip()
+                                msg += response.decode()
+                                if response.decode() == '':
+                                    break
 
-                        # do something with the received data
-                        selve.processResponse(msg)
+                            # do something with the received data
+                            selve.processResponse(msg)
 
-                        # if msg.rstrip() == b' ':
-                        selve._LOGGER.debug(f'Received: {msg}')
+                            # if msg.rstrip() == b' ':
+                            selve._LOGGER.debug(f'Received: {msg}')
 
-            if not selve._pauseWriter:
-                if not selve.txQ.empty():
-                    data: Command = selve.txQ.get_nowait()
-                    commandstr = data.serializeToXML()
-                    selve._LOGGER.debug('Gateway writing: ' + str(commandstr))
-                    try:
-                        with selve._writeLock:
-                            if not selve._serial.is_open:
-                                selve._serial.open()
-                            selve._serial.write(commandstr)
-                            selve._serial.flush()
-                    except Exception as e:
-                        selve._LOGGER.error("error communicating: " + str(e))
+                if not pauseWriter:
+                    if not selve.txQ.empty():
+                        data: Command = selve.txQ.get_nowait()
+                        commandstr = data.serializeToXML()
+                        selve._LOGGER.debug('Gateway writing: ' + str(commandstr))
+                        try:
+                            with selve._writeLock:
+                                if not selve._serial.is_open:
+                                    selve._serial.open()
+                                selve._serial.write(commandstr)
+                                selve._serial.flush()
+                        except Exception as e:
+                            selve._LOGGER.error("error communicating: " + str(e))
 
-                    selve.txQ.task_done()
+                        selve.txQ.task_done()
 
-                    # always sleep after writing
-                    time.sleep(0.5)
+                        # always sleep after writing if buffer not empty
+                        while selve._serial.out_waiting is not 0:
+                            time.sleep(0.5)
 
             time.sleep(0.01)
             if stop():
@@ -128,7 +130,7 @@ class Selve:
 
         self._setup()
         
-        self.readLoopTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread))
+        self.readLoopTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread, lambda: self._pauseReader, lambda: self._pauseWriter, lambda: self._pauseWorker))
         self.readLoopTask.daemon = False
         self.readLoopTask.start()
 
@@ -224,12 +226,14 @@ class Selve:
                     self._serial.open()
                 self._serial.write(commandstr)
                 self._serial.flush()
-                time.sleep(0.5)
+                # always sleep after writing if buffer not empty
+                while self._serial.out_waiting is not 0:
+                    time.sleep(0.5)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
     def processResponse(self, xmlstr):
-        """Processes an XML String into a response object."""
+        """Processes an XML String into a response object. Returns False if something went wrong or the gateway returned an error."""
         # check which command was received
         # do something with the data
         # return the ready to eat response
@@ -281,7 +285,7 @@ class Selve:
         if hasattr(obj, "methodResponse"):
             return ErrorResponse(obj.methodResponse.fault.array.string.cdata, obj.methodResponse.fault.array.int.cdata)
         else:
-            raise CommunicationError()
+            return False
 
     def create_response(self, obj):
         if hasattr(obj, "methodResponse"):
@@ -550,13 +554,9 @@ class Selve:
                     if isinstance(resp, ErrorResponse):
                         self._LOGGER.error(resp.message)
                         # retry
-                        try:
-                            return self._executeCommandSyncWithResponse(command)
-                        except GatewayError as e:
-                            raise e
-                    else:
-                        #time.sleep(0.5)
-                        return resp
+                        return False
+
+                    return resp
                 if time.time() - start_time > 10:
                     time.sleep(0.05)
                     return None
@@ -564,7 +564,7 @@ class Selve:
 
     def discover(self):
 
-        self._stopThread = True
+        self._pauseWorker = True
 
         if self.gatewayReady():
             iveoIds: IveoGetIdsResponse = self.executeCommandSyncWithResponse(IveoGetIds())
@@ -663,10 +663,8 @@ class Selve:
                 device.sun2Analog = config.sun2Analog
                 device.sun3Analog = config.sun3Analog
                 self.addOrUpdateDevice(device, SelveTypes.SENSIM)
-        self._stopThread = False
-        self.readLoopTask = threading.Thread(target=_worker, args=(self, lambda: self._stopThread))
-        self.readLoopTask.daemon = False
-        self.readLoopTask.start()
+        
+        self._pauseWorker = False
         self.list_devices()
 
 
