@@ -170,7 +170,7 @@ class Util():
 
     @classmethod
     def intToBoolarray(self, value):
-        return [bool(bit) for bit in '{0:10b}'.format(value)]
+        return [bool(value & (1<<n)) for n in range(10)]
 
 from enum import Enum
 
