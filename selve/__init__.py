@@ -87,59 +87,59 @@ class Selve:
             self.discover()
 
     
-    def _worker(self):
+    def _worker(self, selve: Selve):
         # Infinite loop to collect all incoming data
         self._LOGGER.debug("Worker started")
         try:
             while True:
-                if not self._pauseWorker:
-                    self._pauseWorkerEvent.clear()
-                    if not self._pauseReader:
-                        self._pauseReaderEvent.clear()
-                        with self._readLock:
-                            with self._serial:
-                                if self._serial.in_waiting > 0:
+                if not selve._pauseWorker:
+                    selve._pauseWorkerEvent.clear()
+                    if not selve._pauseReader:
+                        selve._pauseReaderEvent.clear()
+                        with selve._readLock:
+                            with selve._serial:
+                                if selve._serial.in_waiting > 0:
                                     msg = ""
                                     while True:
-                                        response = self._serial.readline().strip()
+                                        response = selve._serial.readline().strip()
                                         msg += response.decode()
                                         if response.decode() == '':
                                             break
 
                                     # do something with the received data
-                                    self.processResponse(msg)
+                                    selve.processResponse(msg)
 
                                     # if msg.rstrip() == b' ':
-                                    self._LOGGER.debug(f'Received: {msg}')
+                                    selve._LOGGER.debug(f'Received: {msg}')
                     else:
-                        self._pauseReaderEvent.set()
-                        self._LOGGER.debug("Reader stopped")
-                    if not self._pauseWriter:
-                        self._pauseWriterEvent.clear()
-                        if not self.txQ.empty():
-                            data: Command = self.txQ.get_nowait()
+                        selve._pauseReaderEvent.set()
+                        selve._LOGGER.debug("Reader stopped")
+                    if not selve._pauseWriter:
+                        selve._pauseWriterEvent.clear()
+                        if not selve.txQ.empty():
+                            data: Command = selve.txQ.get_nowait()
                             commandstr = data.serializeToXML()
-                            self._LOGGER.debug('Gateway writing: ' + str(commandstr))
+                            selve._LOGGER.debug('Gateway writing: ' + str(commandstr))
                             try:
-                                with self._writeLock:
-                                    with self._serial:
-                                        self._serial.write(commandstr)
-                                        self._serial.flush()
+                                with selve._writeLock:
+                                    with selve._serial:
+                                        selve._serial.write(commandstr)
+                                        selve._serial.flush()
                             except Exception as e:
-                                self._LOGGER.error("error communicating: " + str(e))
+                                selve._LOGGER.error("error communicating: " + str(e))
 
-                            self.txQ.task_done()
+                            selve.txQ.task_done()
 
                             # always sleep after writing
                             time.sleep(1)
                     else:
-                        self._pauseWriterEvent.set()
-                        self._LOGGER.debug("Writer stopped")
+                        selve._pauseWriterEvent.set()
+                        selve._LOGGER.debug("Writer stopped")
                 else:
-                    self._pauseWorkerEvent.set()
+                    selve._pauseWorkerEvent.set()
                 time.sleep(0.01)
-                if self._stopThread:
-                    self._LOGGER.debug('Exiting worker loop...')
+                if selve._stopThread:
+                    selve._LOGGER.debug('Exiting worker loop...')
                     break
             return True
         # serial port exceptions, all of these notify that we are in some
@@ -215,7 +215,7 @@ class Selve:
         self._pauseWriter = False
         self._pauseWorker = False
         self._stopThread = False
-        self.workerTask = threading.Thread(target=self._worker, args=(), daemon=True)
+        self.workerTask = threading.Thread(target=self._worker, args=(self, ), daemon=True)
         self.workerTask.start()
 
     def stopWorker(self):
