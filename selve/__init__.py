@@ -214,7 +214,7 @@ class Selve:
         self._pauseWriter = False
         self._pauseWorker = False
         self._stopThread = False
-        self.workerTask = asyncio.create_task(self._worker(self, self.txQ))
+        self.workerTask = asyncio.create_task(self._worker())
 
     async def stopWorker(self):
         self._LOGGER.debug("Stopping worker")
