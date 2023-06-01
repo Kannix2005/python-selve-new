@@ -584,13 +584,13 @@ class Selve:
                         # retry
                         return False
 
-                        return resp
-                    # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
-                    if time.time() - start_time < 10:
-                        time.sleep(0.05)
-                    else:
-                        await self.startWorker()
-                        return False
+                    return resp
+                # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
+                if time.time() - start_time < 10:
+                    time.sleep(0.05)
+                else:
+                    await self.startWorker()
+                    return False
         
 
 
