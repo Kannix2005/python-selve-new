@@ -61,11 +61,8 @@ class Selve:
 
         # Flags for enabling reader and writer in the worker thread
         self._pauseReader = False
-        self._pauseReaderEvent = threading.Event()
         self._pauseWriter = False
-        self._pauseWriterEvent = threading.Event()
         self._pauseWorker = False
-        self._pauseWorkerEvent = threading.Event()
         
         # The worker thread
         self.workerTask = None
@@ -74,74 +71,62 @@ class Selve:
         self._port = port
 
         # Write lock to safely write to the gateway
-        self._writeLock = threading.Lock()
-        self._readLock = threading.Lock()
+        self._writeLock = asyncio.Lock()
+        self._readLock = asyncio.Lock()
 
         self._LOGGER = logger
 
-        self._setup()
-        self.startWorker()
-
-        if discover:
-            self._LOGGER.info("Discovering devices")
-            self.discover()
-
     
-    def _worker(self, selve: Selve):
+    async def _worker(self, queue: asyncio.Queue):
         # Infinite loop to collect all incoming data
-        selve._LOGGER.debug("Worker started")
+        self._LOGGER.debug("Worker started")
+        
+        self._LOGGER.debug("States: " + "pauseWorker " + self._pauseWorker + ", " + "pauseReader " + self._pauseReader + ", " + "pauseWriter " + self._pauseWriter)
         try:
             while True:
-                if not selve._pauseWorker:
-                    selve._pauseWorkerEvent.clear()
-                    if not selve._pauseReader:
-                        selve._pauseReaderEvent.clear()
-                        with selve._readLock:
-                            if not selve._serial.is_open:
-                                selve._serial.open()
-                            if selve._serial.in_waiting > 0:
+                if not self._pauseWorker:
+                    if not self._pauseReader:
+                        async with self._readLock:
+                            if not self._serial.is_open:
+                                self._serial.open()
+                            if self._serial.in_waiting > 0:
                                 msg = ""
                                 while True:
-                                    response = selve._serial.readline().strip()
+                                    response = self._serial.readline().strip()
                                     msg += response.decode()
                                     if response.decode() == '':
                                         break
 
                                 # do something with the received data
-                                selve.processResponse(msg)
+                                await self.processResponse(msg)
 
                                 # if msg.rstrip() == b' ':
-                                selve._LOGGER.debug(f'Received: {msg}')
+                                self._LOGGER.debug(f'Received: {msg}')
                     else:
-                        selve._pauseReaderEvent.set()
-                        selve._LOGGER.debug("Reader stopped")
-                    if not selve._pauseWriter:
-                        selve._pauseWriterEvent.clear()
-                        if not selve.txQ.empty():
-                            data: Command = selve.txQ.get_nowait()
+                        self._LOGGER.debug("Reader stopped")
+                    if not self._pauseWriter:
+                        if not self.txQ.empty():
+                            data: Command = await queue.get()
                             commandstr = data.serializeToXML()
-                            selve._LOGGER.debug('Gateway writing: ' + str(commandstr))
+                            self._LOGGER.debug('Gateway writing: ' + str(commandstr))
                             try:
-                                with selve._writeLock:
-                                    if not selve._serial.is_open:
-                                        selve._serial.open()
-                                    selve._serial.write(commandstr)
-                                    selve._serial.flush()
+                                async with self._writeLock:
+                                    if not self._serial.is_open:
+                                        self._serial.open()
+                                    self._serial.write(commandstr)
+                                    self._serial.flush()
                             except Exception as e:
-                                selve._LOGGER.error("error communicating: " + str(e))
+                                self._LOGGER.error("error communicating: " + str(e))
 
-                            selve.txQ.task_done()
+                            queue.task_done()
 
                             # always sleep after writing
-                            time.sleep(1)
+                            await asyncio.sleep(1)
                     else:
-                        selve._pauseWriterEvent.set()
-                        selve._LOGGER.debug("Writer stopped")
-                else:
-                    selve._pauseWorkerEvent.set()
-                time.sleep(0.01)
-                if selve._stopThread:
-                    selve._LOGGER.debug('Exiting worker loop...')
+                        self._LOGGER.debug("Writer stopped")
+                await asyncio.sleep(0.01)
+                if self._stopThread:
+                    self._LOGGER.debug('Exiting worker loop...')
                     break
             return True
         # serial port exceptions, all of these notify that we are in some
@@ -151,10 +136,11 @@ class Selve:
             self._LOGGER.error('Serial Port RX error')
 
 
-    def _setup(self):
+    async def setup(self, discover=False, fromConfigFlow=False):
         self._LOGGER.info("Setup")
-        self.rxQ = queue.Queue()
-        self.txQ = queue.Queue()
+
+        self.rxQ = asyncio.Queue()
+        self.txQ = asyncio.Queue()
 
 
         if self._port is not None:
@@ -169,7 +155,12 @@ class Selve:
                     rtscts=False,
                     dsrdtr=False)
                 
-                if self.pingGateway():    
+                if await self.pingGateway():
+                    if not fromConfigFlow:
+                        if discover:
+                            self._LOGGER.info("Discovering devices")
+                            await self.discover() 
+                        await self.startWorker()   
                     return
             except serial.SerialException as e:
                 self._LOGGER.debug("Configured port not valid! " + str(e))
@@ -201,8 +192,13 @@ class Selve:
                 except:
                     self._LOGGER.debug("Cannot close com port")
                 pass
-            if self.pingGateway():
-                self._port = p.name
+            if await self.pingGateway():
+                if not fromConfigFlow:
+                    if discover:
+                        self._LOGGER.info("Discovering devices")
+                        await self.discover() 
+                    await self.startWorker() 
+                self._port = p.device
                 return
             else:
                 self._serial.close()
@@ -210,33 +206,37 @@ class Selve:
         else:
             self._LOGGER.error("No gateway on comports found!")
             raise PortError
+        
+        
 
-    def startWorker(self):
+    async def startWorker(self):
         self._LOGGER.debug("Starting worker")
         self._pauseReader = False
         self._pauseWriter = False
         self._pauseWorker = False
         self._stopThread = False
-        self.workerTask = threading.Thread(target=self._worker, args=(self, ), daemon=True)
-        self.workerTask.start()
+        self.workerTask = asyncio.create_task(self._worker(self.txQ))
 
-    def stopWorker(self):
+    async def stopWorker(self):
         self._LOGGER.debug("Stopping worker")
         self._pauseReader = True
         self._pauseWriter = True
         self._pauseWorker = True
         self._stopThread = True
-        if self.workerTask is not None and self.workerTask.is_alive():
-            self.workerTask.join()
+        if self.workerTask is not None:
+            self.workerTask.cancel()
+            await self.workerTask
         self.workerTask = None
 
 
-    def stopGateway(self):
+    async def stopGateway(self):
         # wait for the rx/tx thread to end, these need to be gathered to
         # collect all the exceptions
         self._LOGGER.debug("Preparing for termination")
         self._stopThread = True
-        self.workerTask.join()
+        if self.workerTask is not None:
+            self.workerTask.cancel()
+            await self.workerTask
         # close the serial port, do the cleanup
         if self._serial.is_open:
             self._serial.close()
@@ -251,21 +251,21 @@ class Selve:
         """Remove previously registered callback."""
         self._callbacks.discard(callback)
 
-    def _sendCommandToGateway(self, command: Command):
+    async def _sendCommandToGateway(self, command: Command):
         commandstr = command.serializeToXML()
         self._LOGGER.debug('Gateway writing: ' + str(commandstr))
         try:
-            with self._writeLock:
+            async with self._writeLock:
                 if not self._serial.is_open:
                     self._serial.open()
                 self._serial.write(commandstr)
                 self._serial.flush()
                 # always sleep after writing
-                time.sleep(1)
+                await asyncio.sleep(1)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
-    def processResponse(self, xmlstr):
+    async def processResponse(self, xmlstr):
         """Processes an XML String into a response object. Returns False if something went wrong or the gateway returned an error."""
         # check which command was received
         # do something with the data
@@ -300,7 +300,7 @@ class Selve:
                     or isinstance(response, SenderEventResponse) \
                     or isinstance(response, LogEventResponse) \
                     or isinstance(response, DutyCycleResponse):
-                self.processEventResponse(response)
+                await self.processEventResponse(response)
             if isinstance(response, CommandResultResponse)\
                     or isinstance(response, IveoResultResponse):
                 #update device values
@@ -533,22 +533,22 @@ class Selve:
         # Any other response (unknown)
         return MethodResponse(methodName, flat_params_list)
 
-    def executeCommand(self, command: Command):
+    async def executeCommand(self, command: Command):
         self._pauseWorker = False
         self.txQ.put_nowait(command)
 
 
-    def executeCommandSyncWithResponse(self, command: Command):
-        resp = self._executeCommandSyncWithResponse(command)
+    async def executeCommandSyncWithResponse(self, command: Command):
+        resp = await self._executeCommandSyncWithResponse(command)
         if (resp == False):
             #something went wrong, try again
-            resp = self._executeCommandSyncWithResponse(command)
+            resp = await self._executeCommandSyncWithResponse(command)
             
         return resp
 
-    def _executeCommandSyncWithResponse(self, command: Command):
+    async def _executeCommandSyncWithResponse(self, command: Command):
 
-        self.stopWorker()
+        await self.stopWorker()
 
         if not self._serial.is_open:
             self._serial.open()
@@ -557,7 +557,7 @@ class Selve:
         #self._serial.reset_input_buffer()
         #self._serial.reset_output_buffer()
 
-        self._sendCommandToGateway(command)
+        await self._sendCommandToGateway(command)
 
         start_time = time.time()
         while True:
@@ -571,9 +571,9 @@ class Selve:
                             break
                     # if msg.rstrip() == b' ':
                     self._LOGGER.debug(f'Received: {msg}')
-                    self.startWorker()
+                    await self.startWorker()
     
-                    resp = self.processResponse(msg)
+                    resp = await self.processResponse(msg)
                     
                     if (resp == False):
                         #something went wrong, try again
@@ -589,39 +589,39 @@ class Selve:
                     if time.time() - start_time < 10:
                         time.sleep(0.05)
                     else:
-                        self.startWorker()
+                        await self.startWorker()
                         return False
         
 
 
-    def discover(self):
+    async def discover(self):
 
         self._pauseWorker = True
 
-        if self.gatewayReady():
-            iveoIds: IveoGetIdsResponse = self.executeCommandSyncWithResponse(IveoGetIds())
-            deviceIds: DeviceGetIdsResponse = self.executeCommandSyncWithResponse(DeviceGetIds())
-            groupIds: GroupGetIdsResponse = self.executeCommandSyncWithResponse(GroupGetIds())
-            sensorIds: SensorGetIdsResponse = self.executeCommandSyncWithResponse(SensorGetIds())
-            senderIds: SenderGetIdsResponse = self.executeCommandSyncWithResponse(SenderGetIds())
-            senSimIds: SenSimGetIdsResponse = self.executeCommandSyncWithResponse(SenSimGetIds())
+        if await self.gatewayReady():
+            iveoIds: IveoGetIdsResponse = await self.executeCommandSyncWithResponse(IveoGetIds())
+            deviceIds: DeviceGetIdsResponse = await self.executeCommandSyncWithResponse(DeviceGetIds())
+            groupIds: GroupGetIdsResponse = await self.executeCommandSyncWithResponse(GroupGetIds())
+            sensorIds: SensorGetIdsResponse = await self.executeCommandSyncWithResponse(SensorGetIds())
+            senderIds: SenderGetIdsResponse = await self.executeCommandSyncWithResponse(SenderGetIds())
+            senSimIds: SenSimGetIdsResponse = await self.executeCommandSyncWithResponse(SenSimGetIds())
 
             for i in iveoIds.ids:
-                config: IveoGetConfigResponse = self.executeCommandSyncWithResponse(IveoGetConfig(i))
+                config: IveoGetConfigResponse = await self.executeCommandSyncWithResponse(IveoGetConfig(i))
                 device = IveoDevice(i, device_sub_type=config.deviceType)
                 device.name = config.name
                 device.activity = config.activity
                 self.addOrUpdateDevice(device, SelveTypes.IVEO)
 
             for i in deviceIds.ids:
-                config: DeviceGetInfoResponse = self.executeCommandSyncWithResponse(DeviceGetInfo(i))
+                config: DeviceGetInfoResponse = await self.executeCommandSyncWithResponse(DeviceGetInfo(i))
                 device = SelveDevice(i, device_type=SelveTypes.DEVICE, device_sub_type=config.deviceType)
                 device.name = config.name
                 device.device_sub_type = config.deviceType
                 device.rfAdress = config.rfAddress
                 device.infoState = config.state
                 self.addOrUpdateDevice(device, SelveTypes.DEVICE)
-                config: DeviceGetValuesResponse = self.executeCommandSyncWithResponse(DeviceGetValues(i))
+                config: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(DeviceGetValues(i))
                 device.state = config.movementState
                 device.value = config.value
                 device.targetValue = config.targetValue
@@ -639,7 +639,7 @@ class Selve:
                 self.addOrUpdateDevice(device, SelveTypes.DEVICE)
 
             for i in groupIds.ids:
-                config: GroupReadResponse = self.executeCommandSyncWithResponse(GroupRead(i))
+                config: GroupReadResponse = await self.executeCommandSyncWithResponse(GroupRead(i))
                 device = SelveGroup(i)
                 device.device_type = SelveTypes.GROUP
                 device.name = config.name
@@ -648,11 +648,11 @@ class Selve:
 
             for i in sensorIds.ids:
                 device = SelveSensor(i)
-                config: SensorGetInfoResponse = self.executeCommandSyncWithResponse(SensorGetInfo(i))
+                config: SensorGetInfoResponse = await self.executeCommandSyncWithResponse(SensorGetInfo(i))
                 device.rfAdress = config.rfAddress
                 device.device_type = SelveTypes.SENSOR
                 self.addOrUpdateDevice(device, SelveTypes.SENSOR)
-                config: SensorGetValuesResponse = self.executeCommandSyncWithResponse(SensorGetValues(i))
+                config: SensorGetValuesResponse = await self.executeCommandSyncWithResponse(SensorGetValues(i))
                 device.windDigital = config.windDigital
                 device.rainDigital = config.rainDigital
                 device.tempDigital = config.tempDigital
@@ -667,7 +667,7 @@ class Selve:
                 self.addOrUpdateDevice(device, SelveTypes.SENSOR)
 
             for i in senderIds.ids:
-                config: SenderGetInfoResponse = self.executeCommandSyncWithResponse(SenderGetInfo(i))
+                config: SenderGetInfoResponse = await self.executeCommandSyncWithResponse(SenderGetInfo(i))
                 device = SelveSender(i)
                 device.device_type = SelveTypes.SENDER
                 device.name = config.name
@@ -677,12 +677,12 @@ class Selve:
                 self.addOrUpdateDevice(device, SelveTypes.SENDER)
 
             for i in senSimIds.ids:
-                config: SenSimGetConfigResponse = self.executeCommandSyncWithResponse(SenSimGetConfig(i))
+                config: SenSimGetConfigResponse = await self.executeCommandSyncWithResponse(SenSimGetConfig(i))
                 device = SelveSenSim(i)
                 device.activity = config.activity
                 device.device_type = SelveTypes.SENSIM
                 self.addOrUpdateDevice(device, SelveTypes.SENSIM)
-                config: SenSimGetValuesResponse = self.executeCommandSyncWithResponse(SenSimGetValues(i))
+                config: SenSimGetValuesResponse = await self.executeCommandSyncWithResponse(SenSimGetValues(i))
                 device.windDigital = config.windDigital
                 device.rainDigital = config.rainDigital
                 device.tempDigital = config.tempDigital
@@ -700,15 +700,15 @@ class Selve:
         self.list_devices()
 
 
-    def updateAllDevices(self):
+    async def updateAllDevices(self):
         for device in self.devices[SelveTypes.DEVICE.value]:
-            self.updateCommeoDeviceValues(device.id)
+            await self.updateCommeoDeviceValues(device.id)
         for sensor in self.devices[SelveTypes.SENSOR.value]:
-            self.updateSensorValuesAsync(sensor.id)
+            await self.updateSensorValuesAsync(sensor.id)
         for senSim in self.devices[SelveTypes.SENSIM.value]:
-            self.updateSenSimValuesAsync(senSim.id)
+            await self.updateSenSimValuesAsync(senSim.id)
         for sender in self.devices[SelveTypes.SENDER.value]:
-            self.updateSenderValuesAsync(sender.id)
+            await self.updateSenderValuesAsync(sender.id)
 
 
 
@@ -754,9 +754,9 @@ class Selve:
                 return i
             i = i + 1
 
-    def pingGateway(self):
+    async def pingGateway(self):
         cmd = service.ServicePing()
-        methodResponse = self.executeCommandSyncWithResponse(cmd)
+        methodResponse = await self.executeCommandSyncWithResponse(cmd)
         try:
             if hasattr(methodResponse, "name"):
                 if methodResponse.name == "selve.GW.service.ping":
@@ -768,10 +768,10 @@ class Selve:
         return False
 
 
-    def gatewayState(self):
+    async def gatewayState(self):
         cmd = service.ServiceGetState()
         try:
-            methodResponse = self.executeCommandSyncWithResponse(cmd)
+            methodResponse = await self.executeCommandSyncWithResponse(cmd)
         except GatewayError:
             self._LOGGER.error(str(GatewayError))
             methodResponse = None
@@ -785,31 +785,31 @@ class Selve:
                     return status
         return None
 
-    def gatewayReady(self):
-        state = self.gatewayState()
+    async def gatewayReady(self):
+        state = await self.gatewayState()
         return state is ServiceState.READY
 
-    def getVersionG(self):
+    async def getVersionG(self):
         cmd = service.ServiceGetVersion()
-        methodResponse = self.executeCommandSyncWithResponse(cmd)
+        methodResponse = await self.executeCommandSyncWithResponse(cmd)
         return methodResponse
 
-    def getGatewayFirmwareVersion(self):
-        command = self.getVersionG()
+    async def getGatewayFirmwareVersion(self):
+        command = await self.getVersionG()
         if hasattr(command, "version"):
             return command.version
         else:
             return False
 
-    def getGatewaySerial(self):
-        command = self.getVersionG()
+    async def getGatewaySerial(self):
+        command = await self.getVersionG()
         if hasattr(command, "serial"):
             return command.serial
         else:
             return False
 
-    def getGatewaySpec(self):
-        command = self.getVersionG()
+    async def getGatewaySpec(self):
+        command = await self.getVersionG()
         if hasattr(command, "spec"):
             return command.spec
         else:
@@ -820,29 +820,29 @@ class Selve:
         Log the list of registered devices
         """
         for id, val in self.devices.items():
-            for id, device in val.items():
+            for ida, device in val.items():
                 self._LOGGER.info(str(device))
 
-    def resetGateway(self):
+    async def resetGateway(self):
         command = service.ServiceReset()
-        response: ServiceResetResponse = self.executeCommandSyncWithResponse(command)
+        response: ServiceResetResponse = await self.executeCommandSyncWithResponse(command)
         if response.executed != 1:
             self._LOGGER.info("Error: Gateway could not be reset or loads too long")
 
         # time.sleep(2)
 
         start_time = time.time()
-        while self.gatewayState() != ServiceState.READY:
+        while await self.gatewayState() != ServiceState.READY:
             if time.time() - start_time >= 10:
                 self._LOGGER.info("Error: Gateway could not be reset or loads too long")
             pass
         self._LOGGER.info("Gateway reset")
 
-    def setEvents(self, eventDevice = False, eventSensor = False, eventSender = False, eventLogging = False, eventDuty = False):
+    async def setEvents(self, eventDevice = False, eventSensor = False, eventSender = False, eventLogging = False, eventDuty = False):
         command = param.ParamSetEvent(eventDevice, eventSensor, eventSender, eventLogging, eventDuty)
-        self.executeCommand(command)
+        await self.executeCommand(command)
 
-    def processEventResponse(self, response):
+    async def processEventResponse(self, response):
         if isinstance(response, CommeoDeviceEventResponse):
             # This is a commeo device response, Iveo does not generate events because it is a one way communication protocol
             if self.is_id_registered(response.id, SelveTypes.DEVICE):
@@ -925,12 +925,12 @@ class Selve:
 
     ##Device functions
 
-    def updateCommeoDeviceValues(self, id: int):
-        response: DeviceGetValuesResponse = self.executeCommandSyncWithResponse(DeviceGetValues(id))
+    async def updateCommeoDeviceValues(self, id: int):
+        response: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(DeviceGetValues(id))
         self.updateCommeoDeviceValuesFromResponse(id, response)
 
-    def updateCommeoDeviceValuesAsync(self, id: int):
-        self.executeCommand(DeviceGetValues(id))
+    async def updateCommeoDeviceValuesAsync(self, id: int):
+        await self.executeCommand(DeviceGetValues(id))
         
     def updateCommeoDeviceValuesFromResponse(self, id: int, response: DeviceGetValuesResponse):
         dev = self.getDevice(id, SelveTypes.DEVICE)
@@ -966,101 +966,101 @@ class Selve:
         dev.state = state
         self.addOrUpdateDevice(dev, type)
 
-    def moveDeviceUp(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
+    async def moveDeviceUp(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommand(CommandDriveUp(device.id, type))
+            await self.executeCommand(CommandDriveUp(device.id, type))
             device.state = MovementState.UP_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
-            self.updateCommeoDeviceValuesAsync(device.id)
+            await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.id, DriveCommandIveo.UP))
+            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.UP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 0, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 0, SelveTypes.IVEO)
 
-    def moveDeviceDown(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
+    async def moveDeviceDown(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommand(CommandDriveDown(device.id, type))
+            await self.executeCommand(CommandDriveDown(device.id, type))
             device.state = MovementState.DOWN_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
-            self.updateCommeoDeviceValuesAsync(device.id)
+            await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.id, DriveCommandIveo.DOWN))
+            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.DOWN))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 100, SelveTypes.IVEO)
 
-    def moveDevicePos1(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
+    async def moveDevicePos1(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommand(CommandDrivePos1(device.id, type))
-            self.updateCommeoDeviceValuesAsync(device.id)
+            await self.executeCommand(CommandDrivePos1(device.id, type))
+            await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS1))
+            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS1))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 66, SelveTypes.IVEO)
 
-    def moveDevicePos2(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
+    async def moveDevicePos2(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommand(CommandDrivePos2(device.id, type))
-            self.updateCommeoDeviceValuesAsync(device.id)
+            await self.executeCommand(CommandDrivePos2(device.id, type))
+            await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS2))
+            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS2))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 33, SelveTypes.IVEO)
 
-    def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
-        self.updateCommeoDeviceValuesAsync(device.id)
+    async def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
+        await self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
+        await self.updateCommeoDeviceValuesAsync(device.id)
 
-    def moveDeviceStepUp(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
-        self.updateCommeoDeviceValuesAsync(device.id)
+    async def moveDeviceStepUp(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
+        await self.executeCommand(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
+        await self.updateCommeoDeviceValuesAsync(device.id)
 
-    def moveDeviceStepDown(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
-        self.updateCommeoDeviceValuesAsync(device.id)
+    async def moveDeviceStepDown(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
+        await self.executeCommand(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
+        await self.updateCommeoDeviceValuesAsync(device.id)
 
-    def stopDevice(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
+    async def stopDevice(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            self.executeCommand(CommandStop(device.id, type))
-            self.updateCommeoDeviceValuesAsync(device.id)
+            await self.executeCommand(CommandStop(device.id, type))
+            await self.updateCommeoDeviceValuesAsync(device.id)
         else:
-            self.executeCommand(IveoManual(device.id, DriveCommandIveo.STOP))
+            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.STOP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 50, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 50, SelveTypes.IVEO)
 
     ## Group
-    def moveGroupUp(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandDriveUpGroup(group.id, type))
+    async def moveGroupUp(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
+        await self.executeCommand(CommandDriveUpGroup(group.id, type))
         for id in Util.b64_mask_to_list(group.mask):
-            self.updateCommeoDeviceValuesAsync(id)
+            await self.updateCommeoDeviceValuesAsync(id)
 
-    def moveGroupDown(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandDriveDownGroup(group.id, type))
+    async def moveGroupDown(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
+        await self.executeCommand(CommandDriveDownGroup(group.id, type))
         for id in Util.b64bytes_to_bitlist(group.mask):
-            self.updateCommeoDeviceValuesAsync(id)
+            await self.updateCommeoDeviceValuesAsync(id)
 
-    def stopGroup(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        self.executeCommand(CommandStopGroup(group.id, type))
+    async def stopGroup(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
+        await self.executeCommand(CommandStopGroup(group.id, type))
         for id in Util.b64bytes_to_bitlist(group.mask):
-            self.updateCommeoDeviceValuesAsync(id)
+            await self.updateCommeoDeviceValuesAsync(id)
 
 
     ### Sensor
-    def updateSensorValuesAsync(self, id: int):
-        self.executeCommand(SensorGetValues(id))
+    async def updateSensorValuesAsync(self, id: int):
+        await self.executeCommand(SensorGetValues(id))
 
     ### SenSim
-    def updateSenSimValuesAsync(self, id: int):
-        self.executeCommand(SenSimGetValues(id))
+    async def updateSenSimValuesAsync(self, id: int):
+        await self.executeCommand(SenSimGetValues(id))
 
     ### Sender
-    def updateSenderValuesAsync(self, id: int):
-        self.executeCommand(SenderGetValues(id))
+    async def updateSenderValuesAsync(self, id: int):
+        await self.executeCommand(SenderGetValues(id))
