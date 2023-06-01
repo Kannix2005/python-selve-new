@@ -43,7 +43,6 @@ class Selve:
         self._callbacks = set()
         self.lastLogEvent = None
         self.state = None
-        self._stopThread = False
 
         # Data from Duty Cycle Event
         self.utilization = 0
@@ -63,23 +62,28 @@ class Selve:
         self._pauseReader = False
         self._pauseWriter = False
         self._pauseWorker = False
+        self._stopThread = False
         
         # The worker thread
         self.workerTask = None
 
         # Port where the Selve gateway was found
         self._port = port
+        self._serial = None
 
         # Write lock to safely write to the gateway
         self._writeLock = asyncio.Lock()
         self._readLock = asyncio.Lock()
+
+        self.txQ = None
+        self.rxQ = None
 
         self._LOGGER = logger
 
     
     async def _worker(self):
         # Infinite loop to collect all incoming data
-        self._LOGGER.debug("Worker started")
+        self._LOGGER.debug("(Selve Worker): " + "Worker started")
         
         try:
             while True:
@@ -100,14 +104,14 @@ class Selve:
                                 await self.processResponse(msg)
 
                                 # if msg.rstrip() == b' ':
-                                self._LOGGER.debug(f'Received: {msg}')
+                                self._LOGGER.debug(f'(Selve Worker): Worker received: {msg}')
                     else:
-                        self._LOGGER.debug("Reader stopped")
+                        self._LOGGER.debug("(Selve Worker): " + "Reader stopped")
                     if not self._pauseWriter:
                         if not self.txQ.empty():
                             data: Command = await self.txQ.get()
                             commandstr = data.serializeToXML()
-                            self._LOGGER.debug('Gateway writing: ' + str(commandstr))
+                            self._LOGGER.debug("(Selve Worker): " + 'Gateway writing: ' + str(commandstr))
                             try:
                                 async with self._writeLock:
                                     if not self._serial.is_open:
@@ -115,24 +119,24 @@ class Selve:
                                     self._serial.write(commandstr)
                                     self._serial.flush()
                             except Exception as e:
-                                self._LOGGER.error("error communicating: " + str(e))
+                                self._LOGGER.error("(Selve Worker): " + "error communicating: " + str(e))
 
                             self.txQ.task_done()
 
                             # always sleep after writing
                             await asyncio.sleep(0.2)
                     else:
-                        self._LOGGER.debug("Writer stopped")
+                        self._LOGGER.debug("(Selve Worker): " + "Writer stopped")
                 await asyncio.sleep(0.01)
                 if self._stopThread:
-                    self._LOGGER.debug('Exiting worker loop...')
+                    self._LOGGER.debug("(Selve Worker): " + 'Exiting worker loop...')
                     break
             return True
         # serial port exceptions, all of these notify that we are in some
         # serious trouble
         except serial.SerialException:
             # log message
-            self._LOGGER.error('Serial Port RX error')
+            self._LOGGER.error("(Selve Worker): " + 'Serial Port RX error')
 
 
     async def setup(self, discover=False, fromConfigFlow=False):
@@ -168,6 +172,7 @@ class Selve:
                 
 
         available_ports = list_ports.comports()
+        self._LOGGER.debug("available comports: " + str(available_ports))
 
         if len(available_ports) == 0:
             self._LOGGER.error("No available comports!")
@@ -214,7 +219,12 @@ class Selve:
         self._pauseWriter = False
         self._pauseWorker = False
         self._stopThread = False
+        self._LOGGER.debug("Set variables")
+        if self.workerTask is not None:
+            self._LOGGER.debug("Running worker detected")
+            self.stopWorker()
         self.workerTask = asyncio.create_task(self._worker())
+        self._LOGGER.debug("created task")
 
     async def stopWorker(self):
         self._LOGGER.debug("Stopping worker")
@@ -224,7 +234,10 @@ class Selve:
         self._stopThread = True
         try:
             if self.workerTask is not None and not self.workerTask.cancelled() and not self.workerTask.done():
+                self._LOGGER.debug("Task is still running, waiting with timeout...")
                 await asyncio.wait_for(self.workerTask, timeout=5)
+        except TimeoutError:
+            self._LOGGER.debug("Task timed out")
         except Exception as e:
             self._LOGGER.debug("Task stopping exception: " + str(e))
         self.workerTask = None
