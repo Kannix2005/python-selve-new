@@ -222,7 +222,7 @@ class Selve:
         self._LOGGER.debug("Set variables")
         if self.workerTask is not None:
             self._LOGGER.debug("Running worker detected")
-            self.stopWorker()
+            await self.stopWorker()
         self.workerTask = asyncio.create_task(self._worker())
         self._LOGGER.debug("created task")
 
