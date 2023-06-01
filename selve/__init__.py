@@ -217,7 +217,7 @@ class Selve:
         self._pauseWriter = False
         self._pauseWorker = False
         self._stopThread = False
-        self.workerTask = threading.Thread(target=self._worker, args=(self, self._writeLock, self._readLock), daemon=True)
+        self.workerTask = threading.Thread(target=self._worker, args=(self, ), daemon=True)
         self.workerTask.start()
 
     def stopWorker(self):
