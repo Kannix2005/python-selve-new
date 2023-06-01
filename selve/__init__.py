@@ -87,18 +87,18 @@ class Selve:
             self.discover()
 
     
-    def _worker(self, selve: Selve, _writeLock, _readLock):
+    def _worker(self, selve: Selve):
         # Infinite loop to collect all incoming data
-        self._LOGGER.debug("Worker started")
+        selve._LOGGER.debug("Worker started")
         try:
             while True:
                 if not selve._pauseWorker:
                     selve._pauseWorkerEvent.clear()
                     if not selve._pauseReader:
                         selve._pauseReaderEvent.clear()
-                        with _readLock():
-                            if not self._serial.is_open:
-                                self._serial.open()
+                        with selve._readLock:
+                            if not selve._serial.is_open:
+                                selve._serial.open()
                             if selve._serial.in_waiting > 0:
                                 msg = ""
                                 while True:
@@ -122,9 +122,9 @@ class Selve:
                             commandstr = data.serializeToXML()
                             selve._LOGGER.debug('Gateway writing: ' + str(commandstr))
                             try:
-                                with _writeLock():
-                                    if not self._serial.is_open:
-                                        self._serial.open()
+                                with selve._writeLock:
+                                    if not selve._serial.is_open:
+                                        selve._serial.open()
                                     selve._serial.write(commandstr)
                                     selve._serial.flush()
                             except Exception as e:
@@ -217,7 +217,7 @@ class Selve:
         self._pauseWriter = False
         self._pauseWorker = False
         self._stopThread = False
-        self.workerTask = threading.Thread(target=self._worker, args=(self, lambda: self._writeLock, lambda: self._readLock), daemon=True)
+        self.workerTask = threading.Thread(target=self._worker, args=(self, self._writeLock, self._readLock), daemon=True)
         self.workerTask.start()
 
     def stopWorker(self):
