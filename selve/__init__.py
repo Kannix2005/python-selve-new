@@ -854,7 +854,7 @@ class Selve:
 
     async def setEvents(self, eventDevice = False, eventSensor = False, eventSender = False, eventLogging = False, eventDuty = False):
         command = param.ParamSetEvent(eventDevice, eventSensor, eventSender, eventLogging, eventDuty)
-        await self.executeCommand(command)
+        return await self.executeCommandSyncWithResponse(command)
 
     async def processEventResponse(self, response):
         if isinstance(response, CommeoDeviceEventResponse):
