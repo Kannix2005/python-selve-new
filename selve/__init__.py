@@ -561,7 +561,7 @@ class Selve:
 
         start_time = time.time()
         while True:
-            with self._readLock:
+            async with self._readLock:
                 if self._serial.in_waiting > 0:
                     msg = ""
                     while True:
