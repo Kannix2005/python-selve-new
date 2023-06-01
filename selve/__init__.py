@@ -120,7 +120,7 @@ class Selve:
                             self.txQ.task_done()
 
                             # always sleep after writing
-                            await asyncio.sleep(1)
+                            await asyncio.sleep(0.2)
                     else:
                         self._LOGGER.debug("Writer stopped")
                 await asyncio.sleep(0.01)
@@ -222,8 +222,11 @@ class Selve:
         self._pauseWriter = True
         self._pauseWorker = True
         self._stopThread = True
-        if self.workerTask is not None and not self.workerTask.cancelled() and not self.workerTask.done():
-            await self.workerTask
+        try:
+            if self.workerTask is not None and not self.workerTask.cancelled() and not self.workerTask.done():
+                await asyncio.wait_for(self.workerTask, timeout=5)
+        except Exception as e:
+            self._LOGGER.debug("Task stopping exception: " + str(e))
         self.workerTask = None
 
 
@@ -259,7 +262,7 @@ class Selve:
                 self._serial.write(commandstr)
                 self._serial.flush()
                 # always sleep after writing
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.2)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
