@@ -223,7 +223,6 @@ class Selve:
         self._pauseWorker = True
         self._stopThread = True
         if self.workerTask is not None and not self.workerTask.cancelled() and not self.workerTask.done():
-            self.workerTask.cancel()
             await self.workerTask
         self.workerTask = None
 
