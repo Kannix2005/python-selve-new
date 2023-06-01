@@ -269,13 +269,12 @@ class Selve:
         commandstr = command.serializeToXML()
         self._LOGGER.debug('Gateway writing: ' + str(commandstr))
         try:
-            async with self._writeLock:
-                if not self._serial.is_open:
-                    self._serial.open()
-                self._serial.write(commandstr)
-                self._serial.flush()
-                # always sleep after writing
-                await asyncio.sleep(0.2)
+            if not self._serial.is_open:
+                self._serial.open()
+            self._serial.write(commandstr)
+            self._serial.flush()
+            # always sleep after writing
+            await asyncio.sleep(0.2)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
@@ -566,46 +565,41 @@ class Selve:
 
         if not self._serial.is_open:
             self._serial.open()
-
-        #guarantee exclusivity
-        #self._serial.reset_input_buffer()
-        #self._serial.reset_output_buffer()
-
-        await self._sendCommandToGateway(command)
-
-        start_time = time.time()
-        while True:
+        async with self._writeLock:
             async with self._readLock:
-                if self._serial.in_waiting > 0:
-                    msg = ""
-                    while True:
-                        response = self._serial.readline().strip()
-                        msg += response.decode()
-                        if response.decode() == '':
-                            break
-                    # if msg.rstrip() == b' ':
-                    self._LOGGER.debug(f'Received: {msg}')
-                    await self.startWorker()
-    
-                    resp = await self.processResponse(msg)
-                    
-                    if (resp == False):
-                        #something went wrong, try again
-                        return False
-                    
-                    if isinstance(resp, ErrorResponse):
-                        self._LOGGER.error(resp.message)
-                        # retry
-                        return False
-
-                    return resp
-                # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
-                if time.time() - start_time < 10:
-                    time.sleep(0.05)
-                else:
-                    await self.startWorker()
-                    return False
+                await self._sendCommandToGateway(command)
+                start_time = time.time()
+                while True:
+                    if self._serial.in_waiting > 0:
+                        msg = ""
+                        while True:
+                            response = self._serial.readline().strip()
+                            msg += response.decode()
+                            if response.decode() == '':
+                                break
+                        # if msg.rstrip() == b' ':
+                        self._LOGGER.debug(f'Received: {msg}')
+                        await self.startWorker()
         
+                        resp = await self.processResponse(msg)
+                        
+                        if (resp == False):
+                            #something went wrong, try again
+                            return False
+                        
+                        if isinstance(resp, ErrorResponse):
+                            self._LOGGER.error(resp.message)
+                            # retry
+                            return False
+
+                        return resp
+                    # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
+                    if time.time() - start_time < 10:
+                        time.sleep(0.05)
+                    else:
+                        await self.startWorker()
+                        return False
+            
 
 
     async def discover(self):
