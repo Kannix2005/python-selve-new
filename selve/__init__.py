@@ -81,7 +81,6 @@ class Selve:
         # Infinite loop to collect all incoming data
         selve._LOGGER.debug("Worker started")
         
-        selve._LOGGER.debug("States: " + "pauseWorker " + self._pauseWorker + ", " + "pauseReader " + self._pauseReader + ", " + "pauseWriter " + self._pauseWriter)
         try:
             while True:
                 if not selve._pauseWorker:
