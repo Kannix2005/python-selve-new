@@ -77,62 +77,62 @@ class Selve:
         self._LOGGER = logger
 
     
-    async def _worker(self, selve: Selve, queue: asyncio.Queue):
+    async def _worker(self):
         # Infinite loop to collect all incoming data
-        selve._LOGGER.debug("Worker started")
+        self._LOGGER.debug("Worker started")
         
         try:
             while True:
-                if not selve._pauseWorker:
-                    if not selve._pauseReader:
-                        async with selve._readLock:
-                            if not selve._serial.is_open:
-                                selve._serial.open()
-                            if selve._serial.in_waiting > 0:
+                if not self._pauseWorker:
+                    if not self._pauseReader:
+                        async with self._readLock:
+                            if not self._serial.is_open:
+                                self._serial.open()
+                            if self._serial.in_waiting > 0:
                                 msg = ""
                                 while True:
-                                    response = selve._serial.readline().strip()
+                                    response = self._serial.readline().strip()
                                     msg += response.decode()
                                     if response.decode() == '':
                                         break
 
                                 # do something with the received data
-                                await selve.processResponse(msg)
+                                await self.processResponse(msg)
 
                                 # if msg.rstrip() == b' ':
-                                selve._LOGGER.debug(f'Received: {msg}')
+                                self._LOGGER.debug(f'Received: {msg}')
                     else:
-                        selve._LOGGER.debug("Reader stopped")
-                    if not selve._pauseWriter:
-                        if not selve.txQ.empty():
-                            data: Command = await queue.get()
+                        self._LOGGER.debug("Reader stopped")
+                    if not self._pauseWriter:
+                        if not self.txQ.empty():
+                            data: Command = await self.txQ.get()
                             commandstr = data.serializeToXML()
-                            selve._LOGGER.debug('Gateway writing: ' + str(commandstr))
+                            self._LOGGER.debug('Gateway writing: ' + str(commandstr))
                             try:
-                                async with selve._writeLock:
-                                    if not selve._serial.is_open:
-                                        selve._serial.open()
-                                    selve._serial.write(commandstr)
-                                    selve._serial.flush()
+                                async with self._writeLock:
+                                    if not self._serial.is_open:
+                                        self._serial.open()
+                                    self._serial.write(commandstr)
+                                    self._serial.flush()
                             except Exception as e:
-                                selve._LOGGER.error("error communicating: " + str(e))
+                                self._LOGGER.error("error communicating: " + str(e))
 
-                            queue.task_done()
+                            self.txQ.task_done()
 
                             # always sleep after writing
                             await asyncio.sleep(1)
                     else:
-                        selve._LOGGER.debug("Writer stopped")
+                        self._LOGGER.debug("Writer stopped")
                 await asyncio.sleep(0.01)
-                if selve._stopThread:
-                    selve._LOGGER.debug('Exiting worker loop...')
+                if self._stopThread:
+                    self._LOGGER.debug('Exiting worker loop...')
                     break
             return True
         # serial port exceptions, all of these notify that we are in some
         # serious trouble
         except serial.SerialException:
             # log message
-            selve._LOGGER.error('Serial Port RX error')
+            self._LOGGER.error('Serial Port RX error')
 
 
     async def setup(self, discover=False, fromConfigFlow=False):
