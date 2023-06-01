@@ -97,22 +97,20 @@ class Selve:
                     if not self._pauseReader:
                         self._pauseReaderEvent.clear()
                         with self._readLock:
-                            if not self._serial.is_open:
-                                self._serial.open()
-                            if self._serial.in_waiting > 0:
-                                msg = ""
-                                while True:
-                                    response = self._serial.readline().strip()
-                                    msg += response.decode()
-                                    if response.decode() == '':
-                                        break
+                            with self._serial:
+                                if self._serial.in_waiting > 0:
+                                    msg = ""
+                                    while True:
+                                        response = self._serial.readline().strip()
+                                        msg += response.decode()
+                                        if response.decode() == '':
+                                            break
 
-                                # do something with the received data
-                                self.processResponse(msg)
+                                    # do something with the received data
+                                    self.processResponse(msg)
 
-                                # if msg.rstrip() == b' ':
-                                self._LOGGER.debug(f'Received: {msg}')    
-                            self._serial.close()
+                                    # if msg.rstrip() == b' ':
+                                    self._LOGGER.debug(f'Received: {msg}')
                     else:
                         self._pauseReaderEvent.set()
                         self._LOGGER.debug("Reader stopped")
@@ -124,11 +122,9 @@ class Selve:
                             self._LOGGER.debug('Gateway writing: ' + str(commandstr))
                             try:
                                 with self._writeLock:
-                                    if not self._serial.is_open:
-                                        self._serial.open()
-                                    self._serial.write(commandstr)
-                                    self._serial.flush()
-                                    self._serial.close()
+                                    with self._serial:
+                                        self._serial.write(commandstr)
+                                        self._serial.flush()
                             except Exception as e:
                                 self._LOGGER.error("error communicating: " + str(e))
 
@@ -258,13 +254,11 @@ class Selve:
         self._LOGGER.debug('Gateway writing: ' + str(commandstr))
         try:
             with self._writeLock:
-                if not self._serial.is_open:
-                    self._serial.open()
-                self._serial.flush()
-                self._serial.write(commandstr)
-                self._serial.flush()
-                # always sleep after writing
-                time.sleep(1)
+                with self._serial:
+                    self._serial.write(commandstr)
+                    self._serial.flush()
+                    # always sleep after writing
+                    time.sleep(1)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
@@ -303,7 +297,7 @@ class Selve:
                     or isinstance(response, SenderEventResponse) \
                     or isinstance(response, LogEventResponse) \
                     or isinstance(response, DutyCycleResponse):
-                return self.processEventResponse(response)
+                self.processEventResponse(response)
             if isinstance(response, CommandResultResponse)\
                     or isinstance(response, IveoResultResponse):
                 #update device values
@@ -553,47 +547,45 @@ class Selve:
 
         self.stopWorker()
 
-        if not self._serial.is_open:
-            self._serial.open()
-
         #guarantee exclusivity
-        self._serial.reset_input_buffer()
-        self._serial.reset_output_buffer()
+        #self._serial.reset_input_buffer()
+        #self._serial.reset_output_buffer()
 
         self._sendCommandToGateway(command)
 
         start_time = time.time()
         while True:
             with self._readLock:
-                if self._serial.in_waiting > 0:
-                    msg = ""
-                    while True:
-                        response = self._serial.readline().strip()
-                        msg += response.decode()
-                        if response.decode() == '':
-                            break
-                    # if msg.rstrip() == b' ':
-                    self._LOGGER.debug(f'Received: {msg}')
-                    self._serial.close()
-                    self.startWorker()
-    
-                    resp = self.processResponse(msg)
-                    
-                    if (resp == False):
-                        #something went wrong, try again
-                        return False
-                    
-                    if isinstance(resp, ErrorResponse):
-                        self._LOGGER.error(resp.message)
-                        # retry
-                        return False
+                with self._serial:
+                    if self._serial.in_waiting > 0:
+                        msg = ""
+                        while True:
+                            response = self._serial.readline().strip()
+                            msg += response.decode()
+                            if response.decode() == '':
+                                break
+                        # if msg.rstrip() == b' ':
+                        self._LOGGER.debug(f'Received: {msg}')
+                        self.startWorker()
+                        resp = self.processResponse(msg)
+                        
+                        if (resp == False):
+                            #something went wrong, try again
+                            return False
+                        
+                        if isinstance(resp, ErrorResponse):
+                            self._LOGGER.error(resp.message)
+                            # retry
+                            return False
 
-                    return resp
-                # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent
-                if time.time() - start_time < 10:
-                    time.sleep(0.05)
-                else:
-                    return None
+                        return resp
+                    # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
+                    if time.time() - start_time < 10:
+                        time.sleep(0.05)
+                    else:
+                        self.startWorker()
+                        return False
+        
 
 
     def discover(self):
