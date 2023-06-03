@@ -602,6 +602,7 @@ class Selve:
     async def discover(self):
 
         await self.stopWorker()
+        await self.setEvents(0,0,0,0,0)
 
         if await self.gatewayReady():
             iveoIds: IveoGetIdsResponse = await self.executeCommandSyncWithResponse(IveoGetIds())
@@ -701,6 +702,7 @@ class Selve:
                 device.sun3Analog = config.sun3Analog
                 self.addOrUpdateDevice(device, SelveTypes.SENSIM)
 
+        await self.setEvents(1,1,1,1,1)
         await self.startWorker()
         self.list_devices()
 
