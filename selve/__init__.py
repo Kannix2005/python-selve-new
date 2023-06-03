@@ -59,11 +59,11 @@ class Selve:
         }
 
         # Flags for enabling reader and writer in the worker thread
-        self._pauseReader = False
-        self._pauseWriter = False
-        self._pauseWorker = False
-        self._stopThread = False
-        
+        self._pauseReader = asyncio.Event()
+        self._pauseWriter = asyncio.Event()
+        self._pauseWorker = asyncio.Event()
+        self._stopThread = asyncio.Event()
+
         # The worker thread
         self.workerTask = None
 
@@ -80,15 +80,15 @@ class Selve:
 
         self._LOGGER = logger
 
-    
+
     async def _worker(self):
         # Infinite loop to collect all incoming data
         self._LOGGER.debug("(Selve Worker): " + "Worker started")
-        
+
         try:
             while True:
-                if not self._pauseWorker:
-                    if not self._pauseReader:
+                if not self._pauseWorker.is_set():
+                    if not self._pauseReader.is_set():
                         async with self._readLock:
                             if not self._serial.is_open:
                                 self._serial.open()
@@ -105,9 +105,8 @@ class Selve:
 
                                 # if msg.rstrip() == b' ':
                                 self._LOGGER.debug(f'(Selve Worker): Worker received: {msg}')
-                    else:
-                        self._LOGGER.debug("(Selve Worker): " + "Reader stopped")
-                    if not self._pauseWriter:
+
+                    if not self._pauseWriter.is_set():
                         if not self.txQ.empty():
                             data: Command = await self.txQ.get()
                             commandstr = data.serializeToXML()
@@ -124,11 +123,10 @@ class Selve:
                             self.txQ.task_done()
 
                             # always sleep after writing
-                            await asyncio.sleep(0.2)
-                    else:
-                        self._LOGGER.debug("(Selve Worker): " + "Writer stopped")
+                            #await asyncio.sleep(0.2)
+
                 await asyncio.sleep(0.01)
-                if self._stopThread:
+                if self._stopThread.is_set():
                     self._LOGGER.debug("(Selve Worker): " + 'Exiting worker loop...')
                     break
             return True
@@ -157,19 +155,19 @@ class Selve:
                     xonxoff=False,
                     rtscts=False,
                     dsrdtr=False)
-                
+
                 if await self.pingGateway():
                     if not fromConfigFlow:
                         if discover:
                             self._LOGGER.info("Discovering devices")
-                            await self.discover() 
-                        await self.startWorker()   
+                            await self.discover()
+                        await self.startWorker()
                     return
             except serial.SerialException as e:
                 self._LOGGER.debug("Configured port not valid! " + str(e))
             except Exception as e:
                 self._LOGGER.error("Unknown exception: " + str(e))
-                
+
 
         available_ports = list_ports.comports()
         self._LOGGER.debug("available comports: " + str(available_ports))
@@ -200,8 +198,8 @@ class Selve:
                 if not fromConfigFlow:
                     if discover:
                         self._LOGGER.info("Discovering devices")
-                        await self.discover() 
-                    await self.startWorker() 
+                        await self.discover()
+                    await self.startWorker()
                 self._port = p.device
                 return
             else:
@@ -210,28 +208,28 @@ class Selve:
         else:
             self._LOGGER.error("No gateway on comports found!")
             raise PortError
-        
-        
+
+
 
     async def startWorker(self):
         self._LOGGER.debug("Starting worker")
-        self._pauseReader = False
-        self._pauseWriter = False
-        self._pauseWorker = False
-        self._stopThread = False
-        self._LOGGER.debug("Set variables")
         if self.workerTask is not None:
             self._LOGGER.debug("Running worker detected")
             await self.stopWorker()
+        self._pauseReader.clear()
+        self._pauseWriter.clear()
+        self._pauseWorker.clear()
+        self._stopThread.clear()
+        self._LOGGER.debug("Set variables")
         self.workerTask = asyncio.create_task(self._worker())
         self._LOGGER.debug("created task")
 
     async def stopWorker(self):
         self._LOGGER.debug("Stopping worker")
-        self._pauseReader = True
-        self._pauseWriter = True
-        self._pauseWorker = True
-        self._stopThread = True
+        self._pauseReader.set()
+        self._pauseWriter.set()
+        self._pauseWorker.set()
+        self._stopThread.set()
         try:
             if self.workerTask is not None and not self.workerTask.cancelled() and not self.workerTask.done():
                 self._LOGGER.debug("Task is still running, waiting with timeout...")
@@ -247,7 +245,7 @@ class Selve:
         # wait for the rx/tx thread to end, these need to be gathered to
         # collect all the exceptions
         self._LOGGER.debug("Preparing for termination")
-        self._stopThread = True
+        self._stopThread.set()
         if self.workerTask is not None:
             self.workerTask.cancel()
             await self.workerTask
@@ -547,7 +545,7 @@ class Selve:
         return MethodResponse(methodName, flat_params_list)
 
     async def executeCommand(self, command: Command):
-        self._pauseWorker = False
+        await self.startWorker()
         self.txQ.put_nowait(command)
 
 
@@ -556,7 +554,7 @@ class Selve:
         if (resp == False):
             #something went wrong, try again
             resp = await self._executeCommandSyncWithResponse(command)
-            
+
         return resp
 
     async def _executeCommandSyncWithResponse(self, command: Command):
@@ -580,13 +578,13 @@ class Selve:
                         # if msg.rstrip() == b' ':
                         self._LOGGER.debug(f'Received: {msg}')
                         await self.startWorker()
-        
+
                         resp = await self.processResponse(msg)
-                        
+
                         if (resp == False):
                             #something went wrong, try again
                             return False
-                        
+
                         if isinstance(resp, ErrorResponse):
                             self._LOGGER.error(resp.message)
                             # retry
@@ -594,17 +592,16 @@ class Selve:
 
                         return resp
                     # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
-                    if time.time() - start_time < 10:
-                        time.sleep(0.05)
-                    else:
+                    if time.time() - start_time > 10:
                         await self.startWorker()
                         return False
-            
+
+
 
 
     async def discover(self):
 
-        self._pauseWorker = True
+        await self.stopWorker()
 
         if await self.gatewayReady():
             iveoIds: IveoGetIdsResponse = await self.executeCommandSyncWithResponse(IveoGetIds())
@@ -703,8 +700,8 @@ class Selve:
                 device.sun2Analog = config.sun2Analog
                 device.sun3Analog = config.sun3Analog
                 self.addOrUpdateDevice(device, SelveTypes.SENSIM)
-        
-        self._pauseWorker = False
+
+        await self.startWorker()
         self.list_devices()
 
 
@@ -939,7 +936,7 @@ class Selve:
 
     async def updateCommeoDeviceValuesAsync(self, id: int):
         await self.executeCommand(DeviceGetValues(id))
-        
+
     def updateCommeoDeviceValuesFromResponse(self, id: int, response: DeviceGetValuesResponse):
         dev = self.getDevice(id, SelveTypes.DEVICE)
         dev.name = response.name if response.name else "None"
@@ -958,12 +955,12 @@ class Selve:
         dev.freezingAlarm = response.freezingAlarm if response.freezingAlarm else False
         dev.dayMode = response.dayMode if response.dayMode else False
         self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
-        
+
     def setDeviceValue(self, id: int, value: int, type: SelveTypes):
         dev = self.getDevice(id, type)
         dev.value = value
         self.addOrUpdateDevice(dev, type)
-        
+
     def setDeviceTargetValue(self, id: int, value: int, type: SelveTypes):
         dev = self.getDevice(id, type)
         dev.targetValue = value
