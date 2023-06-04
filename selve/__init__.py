@@ -60,8 +60,6 @@ class Selve:
         }
 
         # Flags for enabling reader and writer in the worker thread
-        self._pauseReader = asyncio.Event()
-        self._pauseWriter = asyncio.Event()
         self._pauseWorker = asyncio.Event()
         self._stopThread = asyncio.Event()
 
@@ -89,44 +87,43 @@ class Selve:
         try:
             while True:
                 if not self._pauseWorker.is_set():
-                    if not self._pauseReader.is_set():
+                    if not self._serial.is_open:
+                        self._serial.open()
+                    async with self._writeLock:
                         async with self._readLock:
-                            if not self._serial.is_open:
-                                self._serial.open()
-                            if self._serial.in_waiting > 0:
-                                msg = ""
+                            if not self.txQ.empty():
+                                data: Command = await self.txQ.get()
+                                await self._sendCommandToGateway(data)
+                                start_time = time.time()
                                 while True:
-                                    response = self._serial.readline().strip()
-                                    msg += response.decode()
-                                    if response.decode() == '':
+                                    if self._serial.in_waiting > 0:
+                                        msg = ""
+                                        while True:
+                                            response = self._serial.readline().strip()
+                                            msg += response.decode()
+                                            if response.decode() == '':
+                                                break
+                                        self._LOGGER.debug(f'Received: {msg}')
+                                        await self.processResponse(msg)
                                         break
+                                    # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
+                                    if time.time() - start_time > 10:
+                                        return False
+                                # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
+                            else:
+                                if self._serial.in_waiting > 0:
+                                    msg = ""
+                                    while True:
+                                        response = self._serial.readline().strip()
+                                        msg += response.decode()
+                                        if response.decode() == '':
+                                            break
 
-                                # do something with the received data
-                                await self.processResponse(msg)
+                                    # do something with the received data
+                                    await self.processResponse(msg)
 
-                                # if msg.rstrip() == b' ':
-                                self._LOGGER.debug(f'(Selve Worker): Worker received: {msg}')
-
-                    if not self._pauseWriter.is_set():
-                        if not self.txQ.empty():
-                            data: Command = await self.txQ.get()
-                            commandstr = data.serializeToXML()
-                            self._LOGGER.debug("(Selve Worker): " + 'Gateway writing: ' + str(commandstr))
-                            try:
-                                async with self._writeLock:
-                                    if not self._serial.is_open:
-                                        self._serial.open()
-                                    self._serial.write(commandstr)
-                                    self._serial.flush()
-                            except Exception as e:
-                                self._LOGGER.error("(Selve Worker): " + "error communicating: " + str(e))
-
-                            self.txQ.task_done()
-
-                            # always sleep after writing
-                            #await asyncio.sleep(0.2)
-
-                await asyncio.sleep(0.01)
+                                    # if msg.rstrip() == b' ':
+                                    self._LOGGER.debug(f'(Selve Worker): Worker received: {msg}')
                 if self._stopThread.is_set():
                     self._LOGGER.debug("(Selve Worker): " + 'Exiting worker loop...')
                     break
@@ -217,8 +214,6 @@ class Selve:
         if self.workerTask is not None:
             self._LOGGER.debug("Running worker detected")
             await self.stopWorker()
-        self._pauseReader.clear()
-        self._pauseWriter.clear()
         self._pauseWorker.clear()
         self._stopThread.clear()
         self._LOGGER.debug("Set variables")
@@ -227,8 +222,6 @@ class Selve:
 
     async def stopWorker(self):
         self._LOGGER.debug("Stopping worker")
-        self._pauseReader.set()
-        self._pauseWriter.set()
         self._pauseWorker.set()
         self._stopThread.set()
         try:
@@ -254,6 +247,7 @@ class Selve:
         if self._serial.is_open:
             self._serial.close()
         self._serial = None
+        return True
 
 
     def register_callback(self, callback: Callable[[], None]) -> None:
@@ -272,8 +266,6 @@ class Selve:
                 self._serial.open()
             self._serial.write(commandstr)
             self._serial.flush()
-            # always sleep after writing
-            await asyncio.sleep(0.2)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
@@ -551,7 +543,7 @@ class Selve:
 
     async def executeCommand(self, command: Command):
         await self.startWorker()
-        self.txQ.put_nowait(command)
+        await self.txQ.put(command)
 
 
     async def executeCommandSyncWithResponse(self, command: Command):
