@@ -108,7 +108,7 @@ class Selve:
                                         break
                                     # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
                                     if time.time() - start_time > 10:
-                                        return False
+                                        break
                                 # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
                             else:
                                 if self._serial.in_waiting > 0:
