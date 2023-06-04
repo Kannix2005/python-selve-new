@@ -25,8 +25,8 @@ class SenderGetValues(GatewayCommand):
         super().__init__(CommeoSenderCommand.GETVALUES, [(ParameterType.INT, id)])
         
 class SenderSetLabel(GatewayCommand):
-    def __init__(self, id: int):
-        super().__init__(CommeoSenderCommand.SETLABEL, [(ParameterType.INT, id)])
+    def __init__(self, id: int, name: str):
+        super().__init__(CommeoSenderCommand.SETLABEL, [(ParameterType.INT, id), (ParameterType.STRING, name)])
         
 class SenderDelete(GatewayCommand):
     def __init__(self, id: int):

@@ -12,6 +12,7 @@ from serial.tools import list_ports
 import untangle
 
 from selve.commands import param, service
+from selve.commands import device
 from selve.commands.device import *
 from selve.commands.command import *
 from selve.commands.event import *
@@ -318,6 +319,10 @@ class Selve:
                 self.commandResult(response)
             if isinstance(response, DeviceGetValuesResponse):
                 self.updateCommeoDeviceValuesFromResponse(int(response.parameters[1][1]), response)
+            if isinstance(response, SenderTeachResultResponse) \
+                or isinstance(response, SensorTeachResultResponse)\
+                or isinstance(response, DeviceScanResultResponse):
+                self.processTeachResponse(response)
 
             return response
 
@@ -761,93 +766,32 @@ class Selve:
                 return i
             i = i + 1
 
-    async def pingGateway(self):
-        cmd = service.ServicePing()
-        methodResponse = await self.executeCommandSyncWithResponse(cmd)
-        try:
-            if hasattr(methodResponse, "name"):
-                if methodResponse.name == "selve.GW.service.ping":
-                    self._LOGGER.debug("Ping back")
-                    return True
-        except:
-            self._LOGGER.debug("Error in ping")
-        self._LOGGER.debug("No ping")
-        return False
+    async def processTeachResponse(self, response):
+        if isinstance(response, SenderTeachResultResponse):
+            if response.senderId == -1:
+                self._LOGGER.info("No Senders found yet...")
+            else:
+                self._LOGGER.info("Sender found: " + str(response.name) + " - " + str(response.senderId))
+            self._LOGGER.info("Time left for teaching: " + str(response.timeLeft) + "s")
+            self._LOGGER.debug("Current teaching state: " + str(response.teachState.name))
+            self._LOGGER.info("Last event: " + str(response.senderEvent.name))
+        
+        if isinstance(response, SensorTeachResultResponse):
+            if response.foundId == -1:
+                self._LOGGER.info("No Senders found yet...")
+            else:
+                self._LOGGER.info("Sensor found: " + str(response.foundId))
+            self._LOGGER.info("Time left for teaching: " + str(response.timeLeft) + "s")
+            self._LOGGER.debug("Current teaching state: " + str(response.teachState.name))
+                
+        if isinstance(response, DeviceScanResultResponse):
+            if response.noNewDevices <= 0:
+                self._LOGGER.info("No Senders found yet...")
+            else:
+                self._LOGGER.info("Devices found: " + str(response.foundIds))
+            self._LOGGER.debug("Current teaching state: " + str(response.scanState.name))
 
 
-    async def gatewayState(self):
-        cmd = service.ServiceGetState()
-        try:
-            methodResponse = await self.executeCommandSyncWithResponse(cmd)
-        except GatewayError:
-            self._LOGGER.error(str(GatewayError))
-            methodResponse = None
-
-        if hasattr(methodResponse, "name"):
-            if methodResponse.name == "selve.GW." + str(CommeoServiceCommand.GETSTATE.value):
-                if hasattr(methodResponse, "parameters"):
-                    status = ServiceState(int(methodResponse.parameters[0][1]))
-                    self._LOGGER.debug(f'Gateway state: {status}')
-                    self.state = status
-                    return status
-        return None
-
-    async def gatewayReady(self):
-        state = await self.gatewayState()
-        return state is ServiceState.READY
-
-    async def getVersionG(self):
-        cmd = service.ServiceGetVersion()
-        methodResponse = await self.executeCommandSyncWithResponse(cmd)
-        return methodResponse
-
-    async def getGatewayFirmwareVersion(self):
-        command = await self.getVersionG()
-        if hasattr(command, "version"):
-            return command.version
-        else:
-            return False
-
-    async def getGatewaySerial(self):
-        command = await self.getVersionG()
-        if hasattr(command, "serial"):
-            return command.serial
-        else:
-            return False
-
-    async def getGatewaySpec(self):
-        command = await self.getVersionG()
-        if hasattr(command, "spec"):
-            return command.spec
-        else:
-            return False
-
-    def list_devices(self):
-        """[summary]
-        Log the list of registered devices
-        """
-        for id, val in self.devices.items():
-            for ida, device in val.items():
-                self._LOGGER.info(str(device))
-
-    async def resetGateway(self):
-        command = service.ServiceReset()
-        response: ServiceResetResponse = await self.executeCommandSyncWithResponse(command)
-        if response.executed != 1:
-            self._LOGGER.info("Error: Gateway could not be reset or loads too long")
-
-        # time.sleep(2)
-
-        start_time = time.time()
-        while await self.gatewayState() != ServiceState.READY:
-            if time.time() - start_time >= 10:
-                self._LOGGER.info("Error: Gateway could not be reset or loads too long")
-            pass
-        self._LOGGER.info("Gateway reset")
-
-    async def setEvents(self, eventDevice = False, eventSensor = False, eventSender = False, eventLogging = False, eventDuty = False):
-        command = param.ParamSetEvent(eventDevice, eventSensor, eventSender, eventLogging, eventDuty)
-        return await self.executeCommandSyncWithResponse(command)
 
     async def processEventResponse(self, response):
         if isinstance(response, CommeoDeviceEventResponse):
@@ -930,8 +874,213 @@ class Selve:
         for callback in self._callbacks:
             callback()
 
-    ##Device functions
 
+    ### Service
+
+    async def pingGateway(self):
+        cmd = ServicePing()
+        methodResponse = await self.executeCommandSyncWithResponse(cmd)
+        try:
+            if hasattr(methodResponse, "name"):
+                if methodResponse.name == "selve.GW.service.ping":
+                    self._LOGGER.debug("Ping back")
+                    return True
+        except:
+            self._LOGGER.debug("Error in ping")
+        self._LOGGER.debug("No ping")
+        return False
+
+
+    async def gatewayState(self):
+        cmd = ServiceGetState()
+        try:
+            methodResponse = await self.executeCommandSyncWithResponse(cmd)
+        except GatewayError:
+            self._LOGGER.error(str(GatewayError))
+            methodResponse = None
+
+        if hasattr(methodResponse, "name"):
+            if methodResponse.name == "selve.GW." + str(CommeoServiceCommand.GETSTATE.value):
+                if hasattr(methodResponse, "parameters"):
+                    status = ServiceState(int(methodResponse.parameters[0][1]))
+                    self._LOGGER.debug(f'Gateway state: {status}')
+                    self.state = status
+                    return status
+        return None
+
+    async def gatewayReady(self):
+        state = await self.gatewayState()
+        return state is ServiceState.READY
+
+    async def getVersionG(self):
+        cmd = ServiceGetVersion()
+        methodResponse = await self.executeCommandSyncWithResponse(cmd)
+        return methodResponse
+
+    async def getGatewayFirmwareVersion(self):
+        command = await self.getVersionG()
+        if hasattr(command, "version"):
+            return command.version
+        else:
+            return False
+
+    async def getGatewaySerial(self):
+        command = await self.getVersionG()
+        if hasattr(command, "serial"):
+            return command.serial
+        else:
+            return False
+
+    async def getGatewaySpec(self):
+        command = await self.getVersionG()
+        if hasattr(command, "spec"):
+            return command.spec
+        else:
+            return False
+
+    def list_devices(self):
+        """[summary]
+        Log the list of registered devices
+        """
+        for id, val in self.devices.items():
+            for ida, device in val.items():
+                self._LOGGER.info(str(device))
+
+    async def resetGateway(self):
+        command = ServiceReset()
+        response: ServiceResetResponse = await self.executeCommandSyncWithResponse(command)
+        if response.executed is not True:
+            self._LOGGER.info("Error: Gateway could not be reset or loads too long")
+
+        # time.sleep(2)
+
+        start_time = time.time()
+        while await self.gatewayState() != ServiceState.READY:
+            if time.time() - start_time >= 30:
+                self._LOGGER.info("Error: Gateway could not be reset or loads too long")
+            pass
+        self._LOGGER.info("Gateway reset")
+
+    async def factoryResetGateway(self):
+        command = ServiceFactoryReset()
+        response: ServiceFactoryResetResponse = await self.executeCommandSyncWithResponse(command)
+        if response.executed is not True:
+            self._LOGGER.info("Error: Gateway could not be reset or loads too long")
+
+        start_time = time.time()
+        while await self.gatewayState() != ServiceState.READY:
+            if time.time() - start_time >= 60:
+                self._LOGGER.info("Error: Gateway could not be reset or loads too long")
+            pass
+        self._LOGGER.info("Gateway factory reset")
+        return response.executed
+
+    async def setLED(self, state: bool):
+        command = ServiceSetLed(state)
+        response: ServiceSetLedResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def getLED(self):
+        command = ServiceGetLed()
+        response: ServiceGetLedResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    ### Param
+    async def setForward(self, state: bool):
+        command = ParamSetForward(state)
+        response: ParamSetForwardResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def getForward(self):
+        command = ParamGetForward()
+        response: ParamGetForwardResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def setEvents(self, eventDevice = False, eventSensor = False, eventSender = False, eventLogging = False, eventDuty = False):
+        command = ParamSetEvent(eventDevice, eventSensor, eventSender, eventLogging, eventDuty)
+        return await self.executeCommandSyncWithResponse(command)
+    
+    
+    async def getEvents(self):
+        command = ParamGetEvent()
+        response: ParamGetEventResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    
+    async def getDuty(self):
+        command = ParamGetDuty()
+        response: ParamGetDutyResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def getRF(self):
+        command = ParamGetRf()
+        response: ParamGetRfResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    
+
+    ##Device functions
+    async def scanStart(self):
+        command = DeviceScanStart()
+        response: DeviceScanStartResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def scanStop(self):
+        command = DeviceScanStop()
+        response: DeviceScanStopResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def scanResult(self):
+        """ manually polls the scan state, but the states are being reported automatically by the gateway itself"""
+        command = DeviceScanResult()
+        response: DeviceScanResultResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def deviceSave(self, id: int):
+        command = DeviceSave(id)
+        response: DeviceSaveResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def deviceGetIds(self):
+        command = DeviceGetIds()
+        response: DeviceGetIdsResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def deviceGetInfo(self, id: int):
+        command = DeviceGetInfo(id)
+        response: DeviceGetInfoResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def deviceGetValues(self, id: int):
+        command = DeviceGetValues(id)
+        response: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def deviceSetFunction(self, id: int, function: DeviceFunctions):
+        command = DeviceSetFunction(id, function)
+        response: DeviceSetFunctionResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def deviceSetLabel(self, id: int, label: str):
+        command = DeviceSetLabel(id, label)
+        response: DeviceSetLabelResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def deviceSetType(self, id: int, type: DeviceType):
+        command = DeviceSetType(id, type)
+        response: DeviceSetTypeResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def deviceDelete(self, id: int):
+        command = DeviceDelete(id)
+        response: DeviceDeleteResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def deviceWriteManual(self, id: int, address: int, name: str, config: DeviceType):
+        command = DeviceWriteManual(id, address, name, config)
+        response: DeviceWriteManualResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+        
     async def updateCommeoDeviceValues(self, id: int):
         response: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(DeviceGetValues(id))
         self.updateCommeoDeviceValuesFromResponse(id, response)
@@ -1043,7 +1192,28 @@ class Selve:
             self.setDeviceValue(device.id, 50, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 50, SelveTypes.IVEO)
 
+
     ## Group
+    async def groupRead(self, id: int):
+        command = GroupRead(id)
+        response: GroupReadResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def groupWrite(self, id: int, actorIds: dict, name: str):
+        command = GroupWrite(id, actorIds, name)
+        response: GroupWriteResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def groupGetIds(self):
+        command = GroupGetIds()
+        response: GroupGetIdsResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def groupDelete(self, id: int):
+        command = GroupDelete(id)
+        response: GroupDeleteResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
     async def moveGroupUp(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
         await self.executeCommand(CommandDriveUpGroup(group.id, type))
         for id in Util.b64_mask_to_list(group.mask):
@@ -1060,14 +1230,202 @@ class Selve:
             await self.updateCommeoDeviceValuesAsync(id)
 
 
+    ### Iveo
+    async def iveoSetRepeater(self, repeaterInstalled: int):
+        """ 
+            Sets the repeater level. \n
+            repeaterInstalled: int can be \n
+            0 = no repeater installed\n
+            1 = repeater installed for 1-time forwarding\n
+            2 = multiple repeaters installed for 2-time forwarding
+        """
+        command = IveoSetRepeater(repeaterInstalled)
+        response: IveoSetRepeaterResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def iveoGetRepeater(self):
+        """ 
+            Gets the repeater level. \n
+            response.repeaterState: int can be \n
+            0 = no repeater installed\n
+            1 = repeater installed for 1-time forwarding\n
+            2 = multiple repeaters installed for 2-time forwarding
+        """
+        command = IveoGetRepeater()
+        response: IveoGetRepeaterResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def iveoSetLabel(self, id: int, label: str):
+        command = IveoSetLabel(id, label)
+        response: IveoSetLabelResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def iveoSetType(self, id: int, activity: int, type: DeviceType):
+        """
+        Sets the device configuration. \n
+        id: Iveo device id
+        activity: 0 = channel deactivated, 1 = channel active
+        type: DeviceType
+        
+        """
+        command = IveoSetConfig(id, activity, type)
+        response: IveoSetConfigResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def iveoGetType(self, id: int):
+        """
+        Gets the device configuration.
+
+        Params:
+        id: Iveo device id
+
+        Response:
+        name: Name of device
+        activity: 0 = channel deactivated, 1 = channel active
+        type: DeviceType
+        
+        """
+        command = IveoGetConfig(id)
+        response: IveoGetConfigResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def iveoGetIds(self):
+        command = IveoGetIds()
+        response: IveoGetIdsResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def iveoFactoryReset(self):
+        command = IveoFactory()
+        response: IveoFactoryResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def iveoTeach(self):
+        command = IveoTeach()
+        response: IveoTeachResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def iveoLearn(self, id: int):
+        command = IveoLearn(id)
+        response: IveoLearnResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def iveoCommandManual(self, actorId: int, command: DriveCommandIveo):
+        command = IveoManual(actorId, command)
+        response: IveoManualResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def iveoCommandAutomatic(self, actorId: int, command: DriveCommandIveo):
+        command = IveoAutomatic(actorId, command)
+        response: IveoAutomaticResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    
+
     ### Sensor
+    async def sensorTeachStart(self):
+        command = SensorTechStart()
+        response: SensorTeachStartResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def sensorTeachStop(self):
+        command = SensorTeachStop()
+        response: SensorTeachStopResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def sensorTeachResult(self):
+        """ manually polls the teach result state, but the states are being reported automatically by the gateway itself"""
+        command = SensorTeachResult()
+        response: SensorTeachResultResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def sensorGetIds(self):
+        command = SensorGetIds()
+        response: SensorGetIdsResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def sensorGetInfo(self, id: int):
+        command = SensorGetInfo(id)
+        response: SensorGetInfoResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def sensorGetValues(self, id: int):
+        command = SensorGetValues(id)
+        response: SensorGetValuesResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def sensorSetLabel(self, id: int, label: str):
+        command = SensorSetLabel(id, label)
+        response: SensorSetLabelResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def sensorDelete(self, id: int):
+        command = SensorDelete(id)
+        response: SensorDeleteResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def sensorWriteManual(self, id: int, address: int, name: str):
+        command = SensorWriteManual(id, address, name)
+        response: SensorWriteManualResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
     async def updateSensorValuesAsync(self, id: int):
         await self.executeCommand(SensorGetValues(id))
 
-    ### SenSim
+
+
+    ### SenSim - ToDo
     async def updateSenSimValuesAsync(self, id: int):
         await self.executeCommand(SenSimGetValues(id))
 
     ### Sender
+    async def senderTeachStart(self):
+        command = SenderTeachStart()
+        response: SenderTeachStartResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def senderTeachStop(self):
+        command = SenderTeachStop()
+        response: SenderTeachStopResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+    
+    async def senderTeachResult(self):
+        """ manually polls the teach result state, but the states are being reported automatically by the gateway itself"""
+        command = SenderTeachResult()
+        response: SenderTeachResultResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def senderGetIds(self):
+        command = SenderGetIds()
+        response: SenderGetIdsResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def senderGetInfo(self, id: int):
+        command = SenderGetInfo(id)
+        response: SenderGetInfoResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def senderGetValues(self, id: int):
+        command = SenderGetValues(id)
+        response: SenderGetValuesResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+    
+    async def senderSetLabel(self, id: int, label: str):
+        command = SenderSetLabel(id, label)
+        response: SenderSetLabelResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def senderDelete(self, id: int):
+        command = SenderDelete(id)
+        response: SenderDeleteResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def senderWriteManual(self, id: int, address: int, channel: int, resetCount: int, name: str):
+        command = SenderWriteManual(id, address, channel, resetCount, name)
+        response: SenderWriteManualResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+
+
+
     async def updateSenderValuesAsync(self, id: int):
         await self.executeCommand(SenderGetValues(id))
