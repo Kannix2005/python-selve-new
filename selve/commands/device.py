@@ -10,6 +10,10 @@ class DeviceScanStop(GatewayCommand):
     def __init__(self):
         super().__init__(CommeoDeviceCommand.SCANSTOP)
 
+class DeviceScanResult(GatewayCommand):
+    def __init__(self):
+        super().__init__(CommeoDeviceCommand.SCANRESULT)
+
 
 class DeviceSave(GatewayCommand):
     def __init__(self, id: int):

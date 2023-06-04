@@ -10,6 +10,10 @@ class SensorTeachStop(GatewayCommand):
     def __init__(self):
         super().__init__(CommeoSensorCommand.TEACHSTOP)
 
+class SensorTeachResult(GatewayCommand):
+    def __init__(self):
+        super().__init__(CommeoSensorCommand.TEACHRESULT)
+
 
 class SensorGetIds(GatewayCommand):
     def __init__(self):
