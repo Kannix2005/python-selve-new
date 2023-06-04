@@ -267,6 +267,8 @@ class Selve:
                 self._serial.open()
             self._serial.write(commandstr)
             self._serial.flush()
+            #always sleep after writing
+            await asyncio.sleep(0.5)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
