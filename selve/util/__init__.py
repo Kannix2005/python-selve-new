@@ -16,7 +16,7 @@ class Command():
                 xmlstr += "</array>"
             xmlstr+= "</methodCall>"
             return xmlstr.encode('utf-8')
- 
+
 
 class GatewayCommand(Command):
 
@@ -39,7 +39,7 @@ class MethodResponse:
     def __init__(self, name, parameters):
         self.name = name
         self.parameters = parameters
-        
+
 class CommeoCommandResult(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
@@ -52,13 +52,13 @@ class CommeoCommandResult(MethodResponse):
 class CommeoDeviceEventResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        #self.name = parameters[0][1] if parameters[0][1] else ""
-        self.id = int(parameters[0][1])
-        self.actorState = MovementState(int(parameters[1][1])) if int(parameters[1][1]) and int(parameters[1][1]) < 4 else MovementState(0)        
-        self.value = Util.valueToPercentage(int(parameters[2][1]))
-        self.targetValue = Util.valueToPercentage(int(parameters[3][1]))
-        
-        bArr = Util.intToBoolarray(int(parameters[4][1]))
+        self.name = parameters[0][1] if parameters[0][1] else ""
+        self.id = int(parameters[1][1])
+        self.actorState = MovementState(int(parameters[2][1])) if int(parameters[2][1]) and int(parameters[2][1]) < 4 else MovementState(0)
+        self.value = Util.valueToPercentage(int(parameters[3][1]))
+        self.targetValue = Util.valueToPercentage(int(parameters[4][1]))
+
+        bArr = Util.intToBoolarray(int(parameters[5][1]))
         self.unreachable = bArr[0]
         self.overload = bArr[1]
         self.obstructed = bArr[2]
@@ -69,8 +69,8 @@ class CommeoDeviceEventResponse(MethodResponse):
         self.windAlarm = bArr[7]
         self.rainAlarm = bArr[8]
         self.freezingAlarm = bArr[9]
-        self.dayMode = DayMode(int(parameters[5][1]))
-        self.deviceType = DeviceType(int(parameters[6][1]))
+        self.dayMode = DayMode(int(parameters[6][1]))
+        self.deviceType = DeviceType(int(parameters[7][1]))
 
 class LogEventResponse(MethodResponse):
     def __init__(self, name, parameters):
@@ -122,7 +122,7 @@ class Util():
         #Obtains a base64 encoded to modify just one index
         mask =  64 * [0]
         #need to transform the position
-        newid = int((int(id) // 8) * 8  + 7 - (int(id) % 8))    
+        newid = int((int(id) // 8) * 8  + 7 - (int(id) % 8))
         mask[newid] = 1
         bitstring = "".join(str(x) for x in mask)
         return base64.b64encode(self.bitstring_to_bytes(bitstring)).decode('utf8')
@@ -131,7 +131,7 @@ class Util():
     def multimask(self, ids):
         mask = 64 * [0]
         for id in ids:
-            newid = int((int(id) // 8) * 8  + 7 - (int(id) % 8))    
+            newid = int((int(id) // 8) * 8  + 7 - (int(id) % 8))
             mask[newid] = 1
         bitstring = "".join(str(x) for x in mask)
         return base64.b64encode(self.bitstring_to_bytes(bitstring)).decode('utf8')
@@ -182,7 +182,7 @@ class CommeoServiceCommand(Enum):
     FACTORYRESET = "service.factoryReset"
     SETLED = "service.setLED"
     GETLED = "service.getLED"
-    
+
 class CommeoParamCommand(Enum):
     SETFORWARD = "param.setForward"
     GETFORWARD = "param.getForward"
@@ -204,7 +204,7 @@ class CommeoDeviceCommand(Enum):
     SETTYPE = "device.setType"
     DELETE = "device.delete"
     WRITEMANUAL = "device.writeManual"
-    
+
 class CommeoSensorCommand(Enum):
     TEACHSTART = "sensor.teachStart"
     TEACHSTOP = "sensor.teachStop"
@@ -229,7 +229,7 @@ class CommeoSenSimCommand(Enum):
     DRIVE = "senSim.drive"
     SETTEST = "senSim.setTest"
     GETTEST = "senSim.getTest"
-    
+
 class CommeoSenderCommand(Enum):
     TEACHSTART = "sender.teachStart"
     TEACHSTOP = "sender.teachStop"
@@ -252,7 +252,7 @@ class CommeoCommandCommand(Enum):
     GROUP = "command.group"
     GROUPMAN = "command.groupMan"
     RESULT = "command.result"
-    
+
 class CommeoEventCommand(Enum):
     DEVICE = "event.device"
     SENSOR = "event.sensor"
@@ -273,14 +273,14 @@ class IveoCommand(Enum):
     MANUAL = "iveo.commandManual"
     AUTOMATIC = "iveo.commandAutomatic"
     RESULT = "iveo.commandResult"
-    
+
 
 class CommandType(Enum):
     def __getattr__(self, item):
         if item != '_value_':
             return getattr(self.value, item).value
         raise AttributeError
-    SERVICE = CommeoServiceCommand   
+    SERVICE = CommeoServiceCommand
     PARAM = CommeoParamCommand
     DEVICE = CommeoDeviceCommand
     SENSOR = CommeoSensorCommand
@@ -292,6 +292,6 @@ class CommandType(Enum):
     IVEO = IveoCommand
 
 ### Responses
-    
+
 class ResponseTypes(Enum):
     COMMANDRESULT = "selve.gw.command.result"

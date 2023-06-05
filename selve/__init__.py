@@ -89,28 +89,14 @@ class Selve:
                 if not self._pauseWorker.is_set():
                     if not self._serial.is_open:
                         self._serial.open()
-                    async with self._writeLock:
-                        async with self._readLock:
-                            if not self.txQ.empty():
-                                data: Command = await self.txQ.get()
-                                await self._sendCommandToGateway(data)
-                                start_time = time.time()
-                                while True:
-                                    if self._serial.in_waiting > 0:
-                                        msg = ""
-                                        while True:
-                                            response = self._serial.readline().strip()
-                                            msg += response.decode()
-                                            if response.decode() == '':
-                                                break
-                                        self._LOGGER.debug(f'Received: {msg}')
-                                        await self.processResponse(msg)
-                                        break
-                                    # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
-                                    if time.time() - start_time > 10:
-                                        break
-                                # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
-                            else:
+                    if not self.txQ.empty():
+                        data: Command = await self.txQ.get()
+                        await self.executeCommandSyncWithResponsefromWorker(data)
+                        self.txQ.task_done()
+                        # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
+                    else:
+                        async with self._writeLock:
+                            async with self._readLock:
                                 if self._serial.in_waiting > 0:
                                     msg = ""
                                     while True:
@@ -127,7 +113,7 @@ class Selve:
                 if self._stopThread.is_set():
                     self._LOGGER.debug("(Selve Worker): " + 'Exiting worker loop...')
                     break
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
             return True
         # serial port exceptions, all of these notify that we are in some
         # serious trouble
@@ -212,14 +198,18 @@ class Selve:
 
     async def startWorker(self):
         self._LOGGER.debug("Starting worker")
-        if self.workerTask is not None:
-            self._LOGGER.debug("Running worker detected")
-            await self.stopWorker()
         self._pauseWorker.clear()
         self._stopThread.clear()
-        self._LOGGER.debug("Set variables")
-        self.workerTask = asyncio.create_task(self._worker())
-        self._LOGGER.debug("created task")
+        if self.workerTask is not None:
+            self._LOGGER.debug("Running worker detected")
+            if self.workerTask.cancelled() or self.workerTask.done():
+                self.workerTask = None
+                self.workerTask = asyncio.create_task(self._worker())
+            else:
+                self._LOGGER.debug("Let running worker live")
+        else:
+            self.workerTask = asyncio.create_task(self._worker())
+
 
     async def stopWorker(self):
         self._LOGGER.debug("Stopping worker")
@@ -308,6 +298,7 @@ class Selve:
                     or isinstance(response, LogEventResponse) \
                     or isinstance(response, DutyCycleResponse):
                 await self.processEventResponse(response)
+                return True
             if isinstance(response, CommandResultResponse)\
                     or isinstance(response, IveoResultResponse):
                 #update device values
@@ -318,8 +309,12 @@ class Selve:
                 or isinstance(response, SensorTeachResultResponse)\
                 or isinstance(response, DeviceScanResultResponse):
                 self.processTeachResponse(response)
+                return True
 
+            for callback in self._callbacks:
+                callback()
             return response
+
 
         except Exception as e:
             self._LOGGER.error("Error in response processing: " + str(e) + " : " + xmlstr)
@@ -350,7 +345,9 @@ class Selve:
         if hasattr(array, "string"):
             if methodName == "":
                 methodName = list(array.string)[0].cdata
-            str_params_tmp = list(array.string)[1:]
+                str_params_tmp = list(array.string)[1:]
+            else:
+                str_params_tmp = list(array.string)[0:]
             str_params = [(ParameterType.STRING, v.cdata) for v in str_params_tmp]
         int_params = []
         if hasattr(array, str(ParameterType.INT.value)):
@@ -550,23 +547,29 @@ class Selve:
 
 
     async def executeCommandSyncWithResponse(self, command: Command):
+        await self.stopWorker()
         resp = await self._executeCommandSyncWithResponse(command)
-        await asyncio.sleep(0.5)
         if (resp == False):
             #something went wrong, try again
             resp = await self._executeCommandSyncWithResponse(command)
-            await asyncio.sleep(0.5)
 
+        await self.startWorker()
+        return resp
+
+
+    async def executeCommandSyncWithResponsefromWorker(self, command: Command):
+
+        resp = await self._executeCommandSyncWithResponse(command)
+        if (resp == False):
+            #something went wrong, try again
+            resp = await self._executeCommandSyncWithResponse(command)
         return resp
 
     async def _executeCommandSyncWithResponse(self, command: Command):
-
-        await self.stopWorker()
-
-        if not self._serial.is_open:
-            self._serial.open()
         async with self._writeLock:
             async with self._readLock:
+                if not self._serial.is_open:
+                    self._serial.open()
                 await self._sendCommandToGateway(command)
                 start_time = time.time()
                 while True:
@@ -579,23 +582,19 @@ class Selve:
                                 break
                         # if msg.rstrip() == b' ':
                         self._LOGGER.debug(f'Received: {msg}')
-                        await self.startWorker()
 
                         resp = await self.processResponse(msg)
-
-                        if (resp == False):
-                            #something went wrong, try again
-                            return False
 
                         if isinstance(resp, ErrorResponse):
                             self._LOGGER.error(resp.message)
                             # retry
                             return False
+                        if resp is None:
+                            return False
 
                         return resp
                     # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
                     if time.time() - start_time > 10:
-                        await self.startWorker()
                         return False
 
 
@@ -772,7 +771,7 @@ class Selve:
             self._LOGGER.info("Time left for teaching: " + str(response.timeLeft) + "s")
             self._LOGGER.debug("Current teaching state: " + str(response.teachState.name))
             self._LOGGER.info("Last event: " + str(response.senderEvent.name))
-        
+
         if isinstance(response, SensorTeachResultResponse):
             if response.foundId == -1:
                 self._LOGGER.info("No Senders found yet...")
@@ -780,7 +779,7 @@ class Selve:
                 self._LOGGER.info("Sensor found: " + str(response.foundId))
             self._LOGGER.info("Time left for teaching: " + str(response.timeLeft) + "s")
             self._LOGGER.debug("Current teaching state: " + str(response.teachState.name))
-                
+
         if isinstance(response, DeviceScanResultResponse):
             if response.noNewDevices <= 0:
                 self._LOGGER.info("No Senders found yet...")
@@ -867,7 +866,21 @@ class Selve:
             self.utilization = response.traffic
 
 
-    def commandResult(self, response):
+    def commandResult(self, response: IveoResultResponse | CommandResultResponse):
+
+        # if isinstance(response, IveoResultResponse):
+        #     for id in response.executedIds:
+        #         dev = self.getDevice(id, SelveTypes.IVEO)
+
+        #         if response.command is DriveCommandIveo.DOWN:
+        #             dev.state = MovementState.DOWN_ON
+        #         if response.command is DriveCommandIveo.UP:
+        #             dev.state = MovementState.UP_ON
+        #         if response.command is DriveCommandIveo.STOP:
+        #             dev.state = MovementState.STOPPED_OFF
+
+        #         self.addOrUpdateDevice(dev, SelveTypes.IVEO)
+
         for callback in self._callbacks:
             callback()
 
@@ -976,7 +989,7 @@ class Selve:
         command = ServiceSetLed(state)
         response: ServiceSetLedResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def getLED(self):
         command = ServiceGetLed()
         response: ServiceGetLedResponse = await self.executeCommandSyncWithResponse(command)
@@ -996,37 +1009,37 @@ class Selve:
     async def setEvents(self, eventDevice = False, eventSensor = False, eventSender = False, eventLogging = False, eventDuty = False):
         command = ParamSetEvent(eventDevice, eventSensor, eventSender, eventLogging, eventDuty)
         return await self.executeCommandSyncWithResponse(command)
-    
-    
+
+
     async def getEvents(self):
         command = ParamGetEvent()
         response: ParamGetEventResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
-    
+
+
     async def getDuty(self):
         command = ParamGetDuty()
         response: ParamGetDutyResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def getRF(self):
         command = ParamGetRf()
         response: ParamGetRfResponse = await self.executeCommandSyncWithResponse(command)
         return response
 
-    
+
 
     ##Device functions
     async def scanStart(self):
         command = DeviceScanStart()
         response: DeviceScanStartResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def scanStop(self):
         command = DeviceScanStop()
         response: DeviceScanStopResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def scanResult(self):
         """ manually polls the scan state, but the states are being reported automatically by the gateway itself"""
         command = DeviceScanResult()
@@ -1037,12 +1050,12 @@ class Selve:
         command = DeviceSave(id)
         response: DeviceSaveResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def deviceGetIds(self):
         command = DeviceGetIds()
         response: DeviceGetIdsResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def deviceGetInfo(self, id: int):
         command = DeviceGetInfo(id)
         response: DeviceGetInfoResponse = await self.executeCommandSyncWithResponse(command)
@@ -1052,12 +1065,12 @@ class Selve:
         command = DeviceGetValues(id)
         response: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def deviceSetFunction(self, id: int, function: DeviceFunctions):
         command = DeviceSetFunction(id, function)
         response: DeviceSetFunctionResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def deviceSetLabel(self, id: int, label: str):
         command = DeviceSetLabel(id, label)
         response: DeviceSetLabelResponse = await self.executeCommandSyncWithResponse(command)
@@ -1072,12 +1085,12 @@ class Selve:
         command = DeviceDelete(id)
         response: DeviceDeleteResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def deviceWriteManual(self, id: int, address: int, name: str, config: DeviceType):
         command = DeviceWriteManual(id, address, name, config)
         response: DeviceWriteManualResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-        
+
     async def updateCommeoDeviceValues(self, id: int):
         response: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(DeviceGetValues(id))
         self.updateCommeoDeviceValuesFromResponse(id, response)
@@ -1121,70 +1134,70 @@ class Selve:
 
     async def moveDeviceUp(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommandSyncWithResponse(CommandDriveUp(device.id, type))
+            await self.executeCommand(CommandDriveUp(device.id, type))
             device.state = MovementState.UP_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            await self.executeCommandSyncWithResponse(IveoManual(device.id, DriveCommandIveo.UP))
+            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.UP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 0, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 0, SelveTypes.IVEO)
 
     async def moveDeviceDown(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommandSyncWithResponse(CommandDriveDown(device.id, type))
+            await self.executeCommand(CommandDriveDown(device.id, type))
             device.state = MovementState.DOWN_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            await self.executeCommandSyncWithResponse(IveoManual(device.id, DriveCommandIveo.DOWN))
+            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.DOWN))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 100, SelveTypes.IVEO)
 
     async def moveDevicePos1(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommandSyncWithResponse(CommandDrivePos1(device.id, type))
+            await self.executeCommand(CommandDrivePos1(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            await self.executeCommandSyncWithResponse(IveoManual(device.id, DriveCommandIveo.POS1))
+            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS1))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 66, SelveTypes.IVEO)
 
     async def moveDevicePos2(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommandSyncWithResponse(CommandDrivePos2(device.id, type))
+            await self.executeCommand(CommandDrivePos2(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            await self.executeCommandSyncWithResponse(IveoManual(device.id, DriveCommandIveo.POS2))
+            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS2))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 33, SelveTypes.IVEO)
 
     async def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
-        await self.executeCommandSyncWithResponse(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
+        await self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
         await self.updateCommeoDeviceValuesAsync(device.id)
 
     async def moveDeviceStepUp(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        await self.executeCommandSyncWithResponse(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
+        await self.executeCommand(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
         await self.updateCommeoDeviceValuesAsync(device.id)
 
     async def moveDeviceStepDown(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        await self.executeCommandSyncWithResponse(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
+        await self.executeCommand(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
         await self.updateCommeoDeviceValuesAsync(device.id)
 
     async def stopDevice(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommandSyncWithResponse(CommandStop(device.id, type))
+            await self.executeCommand(CommandStop(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
-            await self.executeCommandSyncWithResponse(IveoManual(device.id, DriveCommandIveo.STOP))
+            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.STOP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 50, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 50, SelveTypes.IVEO)
@@ -1195,17 +1208,17 @@ class Selve:
         command = GroupRead(id)
         response: GroupReadResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def groupWrite(self, id: int, actorIds: dict, name: str):
         command = GroupWrite(id, actorIds, name)
         response: GroupWriteResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def groupGetIds(self):
         command = GroupGetIds()
         response: GroupGetIdsResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def groupDelete(self, id: int):
         command = GroupDelete(id)
         response: GroupDeleteResponse = await self.executeCommandSyncWithResponse(command)
@@ -1229,7 +1242,7 @@ class Selve:
 
     ### Iveo
     async def iveoSetRepeater(self, repeaterInstalled: int):
-        """ 
+        """
             Sets the repeater level. \n
             repeaterInstalled: int can be \n
             0 = no repeater installed\n
@@ -1239,9 +1252,9 @@ class Selve:
         command = IveoSetRepeater(repeaterInstalled)
         response: IveoSetRepeaterResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def iveoGetRepeater(self):
-        """ 
+        """
             Gets the repeater level. \n
             response.repeaterState: int can be \n
             0 = no repeater installed\n
@@ -1251,7 +1264,7 @@ class Selve:
         command = IveoGetRepeater()
         response: IveoGetRepeaterResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def iveoSetLabel(self, id: int, label: str):
         command = IveoSetLabel(id, label)
         response: IveoSetLabelResponse = await self.executeCommandSyncWithResponse(command)
@@ -1263,7 +1276,7 @@ class Selve:
         id: Iveo device id
         activity: 0 = channel deactivated, 1 = channel active
         type: DeviceType
-        
+
         """
         command = IveoSetConfig(id, activity, type)
         response: IveoSetConfigResponse = await self.executeCommandSyncWithResponse(command)
@@ -1280,7 +1293,7 @@ class Selve:
         name: Name of device
         activity: 0 = channel deactivated, 1 = channel active
         type: DeviceType
-        
+
         """
         command = IveoGetConfig(id)
         response: IveoGetConfigResponse = await self.executeCommandSyncWithResponse(command)
@@ -1290,56 +1303,56 @@ class Selve:
         command = IveoGetIds()
         response: IveoGetIdsResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def iveoFactoryReset(self):
         command = IveoFactory()
         response: IveoFactoryResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def iveoTeach(self):
         command = IveoTeach()
         response: IveoTeachResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def iveoLearn(self, id: int):
         command = IveoLearn(id)
         response: IveoLearnResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def iveoCommandManual(self, actorId: int, command: DriveCommandIveo):
         command = IveoManual(actorId, command)
         response: IveoManualResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def iveoCommandAutomatic(self, actorId: int, command: DriveCommandIveo):
         command = IveoAutomatic(actorId, command)
         response: IveoAutomaticResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
-    
+
+
 
     ### Sensor
     async def sensorTeachStart(self):
         command = SensorTechStart()
         response: SensorTeachStartResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def sensorTeachStop(self):
         command = SensorTeachStop()
         response: SensorTeachStopResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def sensorTeachResult(self):
         """ manually polls the teach result state, but the states are being reported automatically by the gateway itself"""
         command = SensorTeachResult()
         response: SensorTeachResultResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def sensorGetIds(self):
         command = SensorGetIds()
         response: SensorGetIdsResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def sensorGetInfo(self, id: int):
         command = SensorGetInfo(id)
         response: SensorGetInfoResponse = await self.executeCommandSyncWithResponse(command)
@@ -1349,7 +1362,7 @@ class Selve:
         command = SensorGetValues(id)
         response: SensorGetValuesResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def sensorSetLabel(self, id: int, label: str):
         command = SensorSetLabel(id, label)
         response: SensorSetLabelResponse = await self.executeCommandSyncWithResponse(command)
@@ -1379,23 +1392,23 @@ class Selve:
         command = SenderTeachStart()
         response: SenderTeachStartResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def senderTeachStop(self):
         command = SenderTeachStop()
         response: SenderTeachStopResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
-    
+
     async def senderTeachResult(self):
         """ manually polls the teach result state, but the states are being reported automatically by the gateway itself"""
         command = SenderTeachResult()
         response: SenderTeachResultResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def senderGetIds(self):
         command = SenderGetIds()
         response: SenderGetIdsResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def senderGetInfo(self, id: int):
         command = SenderGetInfo(id)
         response: SenderGetInfoResponse = await self.executeCommandSyncWithResponse(command)
@@ -1405,7 +1418,7 @@ class Selve:
         command = SenderGetValues(id)
         response: SenderGetValuesResponse = await self.executeCommandSyncWithResponse(command)
         return response
-    
+
     async def senderSetLabel(self, id: int, label: str):
         command = SenderSetLabel(id, label)
         response: SenderSetLabelResponse = await self.executeCommandSyncWithResponse(command)
