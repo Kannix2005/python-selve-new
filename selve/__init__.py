@@ -127,7 +127,7 @@ class Selve:
                 if self._stopThread.is_set():
                     self._LOGGER.debug("(Selve Worker): " + 'Exiting worker loop...')
                     break
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.5)
             return True
         # serial port exceptions, all of these notify that we are in some
         # serious trouble
