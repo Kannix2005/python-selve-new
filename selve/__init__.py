@@ -551,9 +551,11 @@ class Selve:
 
     async def executeCommandSyncWithResponse(self, command: Command):
         resp = await self._executeCommandSyncWithResponse(command)
+        await asyncio.sleep(0.5)
         if (resp == False):
             #something went wrong, try again
             resp = await self._executeCommandSyncWithResponse(command)
+            await asyncio.sleep(0.5)
 
         return resp
 
