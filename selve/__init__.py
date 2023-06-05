@@ -268,7 +268,7 @@ class Selve:
             self._serial.write(commandstr)
             self._serial.flush()
             #always sleep after writing
-            await asyncio.sleep(0.5)
+            #await asyncio.sleep(0.5)
         except Exception as e:
             self._LOGGER.error("error communicating: " + str(e))
 
@@ -1119,70 +1119,70 @@ class Selve:
 
     async def moveDeviceUp(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommand(CommandDriveUp(device.id, type))
+            await self.executeCommandSyncWithResponse(CommandDriveUp(device.id, type))
             device.state = MovementState.UP_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.UP))
+            await self.executeCommandSyncWithResponse(IveoManual(device.id, DriveCommandIveo.UP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 0, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 0, SelveTypes.IVEO)
 
     async def moveDeviceDown(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommand(CommandDriveDown(device.id, type))
+            await self.executeCommandSyncWithResponse(CommandDriveDown(device.id, type))
             device.state = MovementState.DOWN_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.DOWN))
+            await self.executeCommandSyncWithResponse(IveoManual(device.id, DriveCommandIveo.DOWN))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 100, SelveTypes.IVEO)
 
     async def moveDevicePos1(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommand(CommandDrivePos1(device.id, type))
+            await self.executeCommandSyncWithResponse(CommandDrivePos1(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS1))
+            await self.executeCommandSyncWithResponse(IveoManual(device.id, DriveCommandIveo.POS1))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 66, SelveTypes.IVEO)
 
     async def moveDevicePos2(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommand(CommandDrivePos2(device.id, type))
+            await self.executeCommandSyncWithResponse(CommandDrivePos2(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS2))
+            await self.executeCommandSyncWithResponse(IveoManual(device.id, DriveCommandIveo.POS2))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 33, SelveTypes.IVEO)
 
     async def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
-        await self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
+        await self.executeCommandSyncWithResponse(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
         await self.updateCommeoDeviceValuesAsync(device.id)
 
     async def moveDeviceStepUp(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        await self.executeCommand(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
+        await self.executeCommandSyncWithResponse(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
         await self.updateCommeoDeviceValuesAsync(device.id)
 
     async def moveDeviceStepDown(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        await self.executeCommand(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
+        await self.executeCommandSyncWithResponse(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
         await self.updateCommeoDeviceValuesAsync(device.id)
 
     async def stopDevice(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommand(CommandStop(device.id, type))
+            await self.executeCommandSyncWithResponse(CommandStop(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
-            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.STOP))
+            await self.executeCommandSyncWithResponse(IveoManual(device.id, DriveCommandIveo.STOP))
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 50, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 50, SelveTypes.IVEO)
@@ -1210,17 +1210,17 @@ class Selve:
         return response.executed
 
     async def moveGroupUp(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        await self.executeCommand(CommandDriveUpGroup(group.id, type))
+        await self.executeCommandSyncWithResponse(CommandDriveUpGroup(group.id, type))
         for id in Util.b64_mask_to_list(group.mask):
             await self.updateCommeoDeviceValuesAsync(id)
 
     async def moveGroupDown(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        await self.executeCommand(CommandDriveDownGroup(group.id, type))
+        await self.executeCommandSyncWithResponse(CommandDriveDownGroup(group.id, type))
         for id in Util.b64bytes_to_bitlist(group.mask):
             await self.updateCommeoDeviceValuesAsync(id)
 
     async def stopGroup(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
-        await self.executeCommand(CommandStopGroup(group.id, type))
+        await self.executeCommandSyncWithResponse(CommandStopGroup(group.id, type))
         for id in Util.b64bytes_to_bitlist(group.mask):
             await self.updateCommeoDeviceValuesAsync(id)
 
