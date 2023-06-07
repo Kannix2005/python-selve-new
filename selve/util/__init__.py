@@ -146,6 +146,21 @@ class Util():
         return [bool(int(value)) for value in list(''.join([bin(by).lstrip('0b').zfill(8)[::-1] for by in byts]))]
 
     @classmethod
+    def b64bytes_to_bitobject(self, b):
+        byts = base64.b64decode(b)
+        out = {}
+        for i in range(len(byts)*8):
+            out[i] = self.access_bit(byts,i)
+        return out
+
+    @classmethod
+    def access_bit(self, data, num):
+        base = int(num // 8)
+        shift = int(num % 8)
+        return (data[base] >> shift) & 0x1
+
+
+    @classmethod
     def b64_mask_to_list(self, b):
         return self.true_in_list(self.b64bytes_to_bitlist(b))
 

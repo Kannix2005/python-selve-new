@@ -1226,18 +1226,24 @@ class Selve:
 
     async def moveGroupUp(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
         await self.executeCommandSyncWithResponse(CommandDriveUpGroup(group.id, type))
-        for id in Util.b64_mask_to_list(group.mask):
-            await self.updateCommeoDeviceValuesAsync(id)
+        ids = Util.b64bytes_to_bitobject(group.mask)
+        for key, value in ids.items():
+            if value:
+                await self.updateCommeoDeviceValuesAsync(key)
 
     async def moveGroupDown(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
         await self.executeCommandSyncWithResponse(CommandDriveDownGroup(group.id, type))
-        for id in Util.b64bytes_to_bitlist(group.mask):
-            await self.updateCommeoDeviceValuesAsync(id)
+        ids = Util.b64bytes_to_bitobject(group.mask)
+        for key, value in ids.items():
+            if value:
+                await self.updateCommeoDeviceValuesAsync(key)
 
     async def stopGroup(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
         await self.executeCommandSyncWithResponse(CommandStopGroup(group.id, type))
-        for id in Util.b64bytes_to_bitlist(group.mask):
-            await self.updateCommeoDeviceValuesAsync(id)
+        ids = Util.b64bytes_to_bitobject(group.mask)
+        for key, value in ids.items():
+            if value:
+                await self.updateCommeoDeviceValuesAsync(key)
 
 
     ### Iveo
