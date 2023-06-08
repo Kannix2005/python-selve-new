@@ -179,7 +179,7 @@ class Selve:
                 except:
                     self._LOGGER.debug("Cannot close com port")
                 pass
-            if await self.pingGateway():
+            if await self.pingGateway(fromConfigFlow=fromConfigFlow):
                 if not fromConfigFlow:
                     if discover:
                         self._LOGGER.info("Discovering devices")
@@ -230,10 +230,7 @@ class Selve:
         # wait for the rx/tx thread to end, these need to be gathered to
         # collect all the exceptions
         self._LOGGER.debug("Preparing for termination")
-        self._stopThread.set()
-        if self.workerTask is not None:
-            self.workerTask.cancel()
-            await self.workerTask
+        await self.stopWorker()
         # close the serial port, do the cleanup
         if self._serial.is_open:
             self._serial.close()
@@ -546,14 +543,14 @@ class Selve:
         await self.txQ.put(command)
 
 
-    async def executeCommandSyncWithResponse(self, command: Command):
+    async def executeCommandSyncWithResponse(self, command: Command, fromConfigFlow=False):
         await self.stopWorker()
         resp = await self._executeCommandSyncWithResponse(command)
         if (resp == False):
             #something went wrong, try again
             resp = await self._executeCommandSyncWithResponse(command)
-
-        await self.startWorker()
+        if not fromConfigFlow:
+            await self.startWorker()
         return resp
 
 
@@ -604,8 +601,8 @@ class Selve:
 
         await self.stopWorker()
         await self.setEvents(0,0,0,0,0)
-
-        if await self.gatewayReady():
+        rdy = await self.gatewayReady()
+        if rdy:
             iveoIds: IveoGetIdsResponse = await self.executeCommandSyncWithResponse(IveoGetIds())
             deviceIds: DeviceGetIdsResponse = await self.executeCommandSyncWithResponse(DeviceGetIds())
             groupIds: GroupGetIdsResponse = await self.executeCommandSyncWithResponse(GroupGetIds())
@@ -887,9 +884,9 @@ class Selve:
 
     ### Service
 
-    async def pingGateway(self):
+    async def pingGateway(self, fromConfigFlow=False):
         cmd = ServicePing()
-        methodResponse = await self.executeCommandSyncWithResponse(cmd)
+        methodResponse = await self.executeCommandSyncWithResponse(cmd, fromConfigFlow=fromConfigFlow)
         try:
             if hasattr(methodResponse, "name"):
                 if methodResponse.name == "selve.GW.service.ping":
