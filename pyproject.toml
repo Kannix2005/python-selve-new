@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python-selve-new"
+authors = [
+    {name = "Stefan Altheimer", email = "me@stefan-altheimer.de"},
+]
+description = "Python library for interfacing with selve devices using the USB-RF controller. Written completely new."
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["selve", "blind", "awning", "shutter", "usb", "rf"]
+license = {text = "GNU General Public License v2 or later (GPLv2+)"}
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Information Technology",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+
+    # Pick your license as you wish
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+
+    # Specify the Python versions you support here. In particular, ensure
+    # that you indicate whether you support Python 2, Python 3 or both.
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.4",
+    "Programming Language :: Python :: 3.5",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
+dependencies = [
+    "requests",
+    "pyserial",
+    "pybase64",
+    "untangle",
+    "nest_asyncio",
+    "aioconsole"
+]
+dynamic = ["version"]
+
+[project.scripts]
+my-script = "my_package.module:function"
+
+# ... other project metadata fields as listed in:
+#     https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
