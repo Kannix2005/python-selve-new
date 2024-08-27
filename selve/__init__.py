@@ -9,6 +9,7 @@ from typing import Callable
 
 import serial
 from serial.tools import list_ports
+from serial import SerialException
 import untangle
 
 from selve.commands import param, service
@@ -216,8 +217,6 @@ class Selve:
         self._LOGGER.debug("(Selve Worker): " + "Waiting 5 seconds before trying...")
         await asyncio.sleep(5)
         self._LOGGER.debug("(Selve Worker): " + "Recovering")
-          
-        
 
         if self._port is not None:
             try:
@@ -348,8 +347,25 @@ class Selve:
             self._serial.flush()
             #always sleep after writing
             await asyncio.sleep(0.5)
+
+        except SerialException as se:
+            self._LOGGER.info('Serial error, trying to reconnect once... ' + str(se))
+            await self.recover()
+
+            try:
+                self._LOGGER.debug('Trying again...')
+                if not self._serial.is_open:
+                    self._serial.open()
+                self._serial.write(commandstr)
+                self._serial.flush()
+                #always sleep after writing
+                await asyncio.sleep(0.5)
+            
+            except Exception as e:
+                self._LOGGER.error("error communicating: " + str(e) + " ; Please restart the integration!")
+
         except Exception as e:
-            self._LOGGER.error("error communicating: " + str(e))
+            self._LOGGER.error("error communicating: " + str(e) + " ; Please restart the integration!")
 
     async def processResponse(self, xmlstr):
         """Processes an XML String into a response object. Returns False if something went wrong or the gateway returned an error."""
