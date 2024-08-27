@@ -19,7 +19,7 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-selve = selve.Selve(portname, develop=True, discover=False, logger=logger)
+selve = selve.Selve(portname, develop=True, discover=False, logger=logger, loop=loop)
 loop.run_until_complete(selve.setup())
 
 loop.run_until_complete(selve.discover())

@@ -40,12 +40,13 @@ from selve.util.protocol import ParameterType
 class Selve:
     """Implementation of the serial communication to the Selve Gateway"""
 
-    def __init__(self, port=None, discover=True, develop=False, logger=None):
+    def __init__(self, port=None, discover=True, develop=False, logger=None, loop=None):
         # Gateway state
         self._callbacks = set()
         self._eventCallbacks = set()
         self.lastLogEvent = None
         self.state = None
+        self.loop = loop
 
         # Data from Duty Cycle Event
         self.utilization = 0
@@ -237,8 +238,11 @@ class Selve:
             except Exception as e:
                 self._LOGGER.error("(Selve Worker): " + "Unknown exception: " + str(e))
 
-
-        available_ports = list_ports.comports()
+        if self.loop is not None:
+            available_ports = await self.loop.run_in_executor(None, list_ports.comports())
+        else:
+            available_ports = list_ports.comports()
+        
         self._LOGGER.debug("(Selve Worker): " + "available comports: " + str(available_ports))
 
         if len(available_ports) == 0:
