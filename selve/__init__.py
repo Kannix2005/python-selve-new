@@ -42,6 +42,7 @@ class Selve:
     def __init__(self, port=None, discover=True, develop=False, logger=None):
         # Gateway state
         self._callbacks = set()
+        self._eventCallbacks = set()
         self.lastLogEvent = None
         self.state = None
 
@@ -74,9 +75,14 @@ class Selve:
         self._writeLock = asyncio.Lock()
         self._readLock = asyncio.Lock()
 
+        # Trasmit and Recieve Queue init
         self.txQ = None
         self.rxQ = None
 
+        #Options
+        self.reversedStopPosition = 0
+
+        #Logger
         self._LOGGER = logger
 
 
@@ -84,8 +90,9 @@ class Selve:
         # Infinite loop to collect all incoming data
         self._LOGGER.debug("(Selve Worker): " + "Worker started")
 
-        try:
-            while True:
+        
+        while True:
+            try:
                 if not self._pauseWorker.is_set():
                     if not self._serial.is_open:
                         self._serial.open()
@@ -98,6 +105,7 @@ class Selve:
                         async with self._writeLock:
                             async with self._readLock:
                                 if self._serial.in_waiting > 0:
+                                    self._LOGGER.debug(f'(Selve Worker): Recieved Serial Data')
                                     msg = ""
                                     while True:
                                         response = self._serial.readline().strip()
@@ -113,13 +121,22 @@ class Selve:
                 if self._stopThread.is_set():
                     self._LOGGER.debug("(Selve Worker): " + 'Exiting worker loop...')
                     break
+
                 await asyncio.sleep(0.1)
-            return True
-        # serial port exceptions, all of these notify that we are in some
-        # serious trouble
-        except serial.SerialException:
-            # log message
-            self._LOGGER.error("(Selve Worker): " + 'Serial Port RX error')
+
+            except serial.SerialException:
+                # log message
+                self._LOGGER.error("(Selve Worker): " + 'Serial Port RX error')
+                self._LOGGER.error("(Selve Worker): " + 'trying to reconnect...')
+                await self.recover()
+
+            #await asyncio.sleep(0.1)
+        return True
+    # serial port exceptions, all of these notify that we are in some
+    # serious trouble
+    
+
+
 
 
     async def setup(self, discover=False, fromConfigFlow=False):
@@ -194,6 +211,68 @@ class Selve:
             self._LOGGER.error("No gateway on comports found!")
             raise PortError
 
+    async def recover(self):
+        self._LOGGER.info("(Selve Worker): " + "Recover serial connection")
+        self._LOGGER.debug("(Selve Worker): " + "Waiting 5 seconds before trying...")
+        await asyncio.sleep(5)
+        self._LOGGER.debug("(Selve Worker): " + "Recovering")
+          
+        
+
+        if self._port is not None:
+            try:
+                self._serial = serial.Serial(
+                    port=self._port,
+                    baudrate=115200,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    xonxoff=False,
+                    rtscts=False,
+                    dsrdtr=False)
+
+                if await self.pingGatewayFromWorker():
+                    return
+            except serial.SerialException as e:
+                self._LOGGER.debug("(Selve Worker): " + "Configured port not valid, maybe it has changed, trying other ports...")
+            except Exception as e:
+                self._LOGGER.error("(Selve Worker): " + "Unknown exception: " + str(e))
+
+
+        available_ports = list_ports.comports()
+        self._LOGGER.debug("(Selve Worker): " + "available comports: " + str(available_ports))
+
+        if len(available_ports) == 0:
+            self._LOGGER.error("(Selve Worker): " + "No available comports!")
+            return False
+
+        for p in available_ports:
+            try:
+                self._serial = serial.Serial(
+                    port=p.device,
+                    baudrate=115200,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    xonxoff=False,
+                    rtscts=False,
+                    dsrdtr=False)
+            except Exception as e:
+                self._LOGGER.error("(Selve Worker): " + "Error at com port: " + str(e))
+                try:
+                    self._serial.close()
+                except:
+                    self._LOGGER.debug("(Selve Worker): " + "Cannot close com port")
+                pass
+            if await self.pingGatewayFromWorker():
+                self._port = p.device
+                return
+            else:
+                self._serial.close()
+                self._serial = None
+        else:
+            self._LOGGER.error("(Selve Worker): " + "No gateway on comports found!")
+            raise PortError
 
 
     async def startWorker(self):
@@ -245,6 +324,19 @@ class Selve:
     def remove_callback(self, callback: Callable[[], None]) -> None:
         """Remove previously registered callback."""
         self._callbacks.discard(callback)
+
+    def register_event_callback(self, callback: Callable[[], None]) -> None:
+        """Register callback, called when other events take place."""
+        self._eventCallbacks.add(callback)
+
+    def remove_event_callback(self, callback: Callable[[], None]) -> None:
+        """Remove previously registered callback."""
+        self._eventCallbacks.discard(callback)
+
+
+    def updateOptions(self, reversedStopPosition = 0):
+        self.reversedStopPosition = reversedStopPosition
+
 
     async def _sendCommandToGateway(self, command: Command):
         commandstr = command.serializeToXML()
@@ -627,8 +719,18 @@ class Selve:
                 self.addOrUpdateDevice(device, SelveTypes.DEVICE)
                 config: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(DeviceGetValues(i))
                 device.state = config.movementState
-                device.value = config.value
-                device.targetValue = config.targetValue
+
+                if self.reversedStopPosition is 0:
+                    device.value = config.value if config.value else 0
+                else:
+                    device.value = 100 - config.value if config.value else 0
+
+
+                if self.reversedStopPosition is 0:
+                    device.targetValue = config.targetValue if config.targetValue else 0
+                else:
+                    device.targetValue = 100 - config.targetValue if config.targetValue else 0
+
                 device.unreachable = config.unreachable
                 device.overload = config.overload
                 device.obstructed = config.obstructed
@@ -798,8 +900,18 @@ class Selve:
                 self._LOGGER.error("Id not found, creating")
 
             device.state = response.actorState
-            device.value = response.value
-            device.targetValue = response.targetValue
+
+            if self.reversedStopPosition is 0:
+                device.value = response.value if response.value else 0
+            else:
+                device.value = 100 - response.value if response.value else 0
+
+
+            if self.reversedStopPosition is 0:
+                device.targetValue = response.targetValue if response.targetValue else 0
+            else:
+                device.targetValue = 100 - response.targetValue if response.targetValue else 0
+
             device.unreachable = response.unreachable
             device.overload = response.overload
             device.obstructed = response.obstructed
@@ -845,6 +957,8 @@ class Selve:
             sender.lastEvent = response.event
             sender.name = response.senderName
             self.addOrUpdateDevice(sender, SelveTypes.SENSOR)
+            for callback in self._eventCallbacks:
+                callback(response)
 
         if isinstance(response, LogEventResponse):
             self.lastLogEvent = response
@@ -861,6 +975,9 @@ class Selve:
         if isinstance(response, DutyCycleResponse):
             self.sendingBlocked = response.mode
             self.utilization = response.traffic
+            
+            for callback in self._eventCallbacks:
+                callback(response)
 
 
     def commandResult(self, response: IveoResultResponse | CommandResultResponse):
@@ -887,6 +1004,19 @@ class Selve:
     async def pingGateway(self, fromConfigFlow=False):
         cmd = ServicePing()
         methodResponse = await self.executeCommandSyncWithResponse(cmd, fromConfigFlow=fromConfigFlow)
+        try:
+            if hasattr(methodResponse, "name"):
+                if methodResponse.name == "selve.GW.service.ping":
+                    self._LOGGER.debug("Ping back")
+                    return True
+        except:
+            self._LOGGER.debug("Error in ping")
+        self._LOGGER.debug("No ping")
+        return False
+
+    async def pingGatewayFromWorker(self, fromConfigFlow=False):
+        cmd = ServicePing()
+        methodResponse = await self.executeCommandSyncWithResponsefromWorker(cmd)
         try:
             if hasattr(methodResponse, "name"):
                 if methodResponse.name == "selve.GW.service.ping":
@@ -1099,8 +1229,17 @@ class Selve:
         dev = self.getDevice(id, SelveTypes.DEVICE)
         dev.name = response.name if response.name else "None"
         dev.state = response.movementState if response.movementState else MovementState.UNKOWN.value
-        dev.value = response.value if response.value else 0
-        dev.targetValue = response.targetValue if response.targetValue else 0
+        if self.reversedStopPosition is 0:
+            dev.value = response.value if response.value else 0
+        else:
+            dev.value = 100 - response.value if response.value else 0
+
+
+        if self.reversedStopPosition is 0:
+            dev.targetValue = response.targetValue if response.targetValue else 0
+        else:
+            dev.targetValue = 100 - response.targetValue if response.targetValue else 0
+
         dev.unreachable = response.unreachable if response.unreachable else True
         dev.overload = response.overload if response.overload else False
         dev.obstructed = response.obstructed if response.obstructed else False
@@ -1116,12 +1255,19 @@ class Selve:
 
     def setDeviceValue(self, id: int, value: int, type: SelveTypes):
         dev = self.getDevice(id, type)
-        dev.value = value
+        if self.reversedStopPosition is 0:
+            dev.value = value
+        else:
+            dev.value = 100 - value
+
         self.addOrUpdateDevice(dev, type)
 
     def setDeviceTargetValue(self, id: int, value: int, type: SelveTypes):
         dev = self.getDevice(id, type)
-        dev.targetValue = value
+        if self.reversedStopPosition is 0:
+            dev.targetValue = value
+        else:
+            dev.targetValue = 100 - value
         self.addOrUpdateDevice(dev, type)
 
     def setDeviceState(self, id: int, state: MovementState, type: SelveTypes):
