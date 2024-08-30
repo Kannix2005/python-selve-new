@@ -977,8 +977,6 @@ class Selve:
             sender.lastEvent = response.event
             sender.name = response.senderName
             self.addOrUpdateDevice(sender, SelveTypes.SENSOR)
-            for callback in self._eventCallbacks:
-                callback(response)
 
         if isinstance(response, LogEventResponse):
             self.lastLogEvent = response
@@ -996,8 +994,9 @@ class Selve:
             self.sendingBlocked = response.mode
             self.utilization = response.traffic
             
-            for callback in self._eventCallbacks:
-                callback(response)
+
+        for callback in self._eventCallbacks:
+            callback(response)
 
 
     def commandResult(self, response: IveoResultResponse | CommandResultResponse):
