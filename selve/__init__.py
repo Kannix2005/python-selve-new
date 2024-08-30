@@ -907,6 +907,9 @@ class Selve:
             self._LOGGER.debug("Current teaching state: " + str(response.scanState.name))
 
 
+        for callback in self._eventCallbacks:
+            callback(response)
+
 
     async def processEventResponse(self, response):
         if isinstance(response, CommeoDeviceEventResponse):
