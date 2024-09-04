@@ -239,7 +239,7 @@ class Selve:
                 self._LOGGER.error("(Selve Worker): " + "Unknown exception: " + str(e))
 
         if self.loop is not None:
-            available_ports = await self.loop.run_in_executor(None, list_ports.comports())
+            available_ports = await self.loop.run_in_executor(None, list_ports.comports)
         else:
             available_ports = list_ports.comports()
         
