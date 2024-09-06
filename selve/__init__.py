@@ -126,9 +126,9 @@ class Selve:
 
                 await asyncio.sleep(0.1)
 
-            except serial.SerialException:
+            except (serial.SerialException, IOError) as e:
                 # log message
-                self._LOGGER.error("(Selve Worker): " + 'Serial Port RX error')
+                self._LOGGER.error("(Selve Worker): " + 'Serial Port RX error ' + str(e))
                 self._LOGGER.error("(Selve Worker): " + 'trying to reconnect...')
                 await self.recover()
 
@@ -167,7 +167,7 @@ class Selve:
                             await self.discover()
                         await self.startWorker()
                     return
-            except serial.SerialException as e:
+            except (serial.SerialException, IOError) as e:
                 self._LOGGER.debug("Configured port not valid! " + str(e))
             except Exception as e:
                 self._LOGGER.error("Unknown exception: " + str(e))
@@ -237,7 +237,7 @@ class Selve:
 
                 if await self.pingGatewayFromWorker():
                     return
-            except serial.SerialException as e:
+            except (serial.SerialException, IOError) as e:
                 self._LOGGER.debug("(Selve Worker): " + "Configured port not valid, maybe it has changed, trying other ports...")
             except Exception as e:
                 self._LOGGER.error("(Selve Worker): " + "Unknown exception: " + str(e))
@@ -356,7 +356,7 @@ class Selve:
             #always sleep after writing
             await asyncio.sleep(0.5)
 
-        except SerialException as se:
+        except (serial.SerialException, IOError) as se:
             self._LOGGER.info('Serial error, trying to reconnect once... ' + str(se))
             await self.recover()
 
