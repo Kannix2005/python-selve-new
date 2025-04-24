@@ -138,7 +138,7 @@ class Selve:
     # serious trouble
     
 
-    async def list_ports(self):
+    def list_ports(self):
         available_ports = list_ports.comports()
         return available_ports
 
