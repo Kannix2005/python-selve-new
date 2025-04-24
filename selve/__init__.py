@@ -138,7 +138,32 @@ class Selve:
     # serious trouble
     
 
+    async def list_ports(self):
+        available_ports = list_ports.comports()
+        return available_ports
 
+    async def check_port(self, port):
+        if port is not None:
+            try:
+                self._serial = serial.Serial(
+                    port=port,
+                    baudrate=115200,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    xonxoff=False,
+                    rtscts=False,
+                    dsrdtr=False)
+
+                if await self.pingGateway():
+                    return True
+            except (serial.SerialException, IOError) as e:
+                self._LOGGER.debug("Configured port not valid! " + str(e))
+                return False
+            except Exception as e:
+                self._LOGGER.error("Unknown exception: " + str(e))
+                return False
+        return False
 
 
     async def setup(self, discover=False, fromConfigFlow=False):
