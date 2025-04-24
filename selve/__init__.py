@@ -681,7 +681,7 @@ class Selve:
     async def _executeCommandSyncWithResponse(self, command: Command):
         async with self._writeLock:
             async with self._readLock:
-                if not self._serial.is_open:
+                if self._serial is not None and not self._serial.is_open:
                     self._serial.open()
                 await self._sendCommandToGateway(command)
                 start_time = time.time()
