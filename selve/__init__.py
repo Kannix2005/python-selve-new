@@ -186,7 +186,7 @@ class Selve:
                     rtscts=False,
                     dsrdtr=False)
 
-                if await self.pingGateway():
+                if await self.pingGateway(fromConfigFlow=fromConfigFlow):
                     if not fromConfigFlow:
                         if discover:
                             self._LOGGER.info("Discovering devices")
@@ -707,6 +707,8 @@ class Selve:
     async def _executeCommandSyncWithResponse(self, command: Command):
         async with self._writeLock:
             async with self._readLock:
+                if self._serial is None:
+                    return False
                 if self._serial is not None and not self._serial.is_open:
                     self._serial.open()
                 await self._sendCommandToGateway(command)
