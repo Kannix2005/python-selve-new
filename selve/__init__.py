@@ -155,7 +155,7 @@ class Selve:
                     rtscts=False,
                     dsrdtr=False)
 
-                if await self.pingGateway():
+                if await self.pingGateway(fromConfigFlow=True):
                     return True
             except (serial.SerialException, IOError) as e:
                 self._LOGGER.debug("Configured port not valid! " + str(e))
