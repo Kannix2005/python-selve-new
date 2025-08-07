@@ -1,0 +1,429 @@
+================================================================================================ test session starts =================================================================================================
+platform win32 -- Python 3.10.6, pytest-8.4.1, pluggy-1.6.0 -- c:\Users\Stefan\Documents\Projekte\python-selve-new\venv\Scripts\python.exe
+cachedir: .pytest_cache
+metadata: {'Python': '3.10.6', 'Platform': 'Windows-10-10.0.26100-SP0', 'Packages': {'pytest': '8.4.1', 'pluggy': '1.6.0'}, 'Plugins': {'asyncio': '1.1.0', 'cov': '6.2.1', 'html': '4.1.1', 'metadata': '3.1.1', 'mock': '3.14.1', 'xdist': '3.8.0'}, 'JAVA_HOME': 'C:\\Program Files\\OpenJDK\\jdk-22.0.2'}
+rootdir: c:\Users\Stefan\Documents\Projekte\python-selve-new
+configfile: pytest.ini
+plugins: asyncio-1.1.0, cov-6.2.1, html-4.1.1, metadata-3.1.1, mock-3.14.1, xdist-3.8.0
+asyncio: mode=strict, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... Found COM16: USB Serial Port (COM16)
+Hardware detected on port: COM16
+collected 87 items
+
+tests/test_selve_advanced.py::TestSelvePerformance::test_command_execution_performance Performance test results:
+  Commands: 100
+  Duration: 0.002s
+  Rate: 49560.5 commands/s
+PASSED
+tests/test_selve_advanced.py::TestSelvePerformance::test_concurrent_command_execution Concurrent execution results:
+  Commands: 50
+  Successful: 50
+  Duration: 0.002s
+  Rate: 33067.7 commands/s
+PASSED
+tests/test_selve_advanced.py::TestSelvePerformance::test_device_update_performance Device update performance:
+  Devices: 60
+  Duration: 0.923s
+  Rate: 65.0 devices/s
+PASSED
+tests/test_selve_advanced.py::TestSelveMemoryUsage::test_memory_usage_with_many_devices Memory usage test:
+  Total devices: 78
+  Initial memory: 44.88 MB
+  Final memory: 44.90 MB
+  Memory increase: 0.02 MB
+  Memory per device: 0.0003 MB
+PASSED
+tests/test_selve_advanced.py::TestSelveMemoryUsage::test_callback_memory_leak Callback memory leak test:
+  Callbacks created: 100
+  Still alive: 100
+  After removal: 1
+PASSED
+tests/test_selve_advanced.py::TestSelveRobustness::test_rapid_start_stop_worker PASSED
+tests/test_selve_advanced.py::TestSelveRobustness::test_multiple_concurrent_setups PASSED
+tests/test_selve_advanced.py::TestSelveRobustness::test_command_queue_overflow PASSED
+tests/test_selve_advanced.py::TestSelveRobustness::test_invalid_responses PASSED
+tests/test_selve_advanced.py::TestSelveRobustness::test_device_id_boundaries Correctly rejected invalid device ID 64
+Correctly rejected invalid device ID 999
+Note: Invalid device ID -1 was somehow handled
+PASSED
+tests/test_selve_advanced.py::TestSelveConfigurationEdgeCases::test_initialization_with_none_values PASSED
+tests/test_selve_advanced.py::TestSelveConfigurationEdgeCases::test_setup_with_empty_port_list PASSED
+tests/test_selve_advanced.py::TestSelveConfigurationEdgeCases::test_device_type_boundaries PASSED
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_hardware_connection 2025-08-07 17:02:56,896 - selve_test_2607799432960 - INFO - Setup
+2025-08-07 17:02:56,981 - selve_test_2607799432960 - DEBUG - Worker not running
+2025-08-07 17:02:56,981 - selve_test_2607799432960 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.ping</methodName></methodCall>'
+2025-08-07 17:02:57,075 - selve_test_2607799432960 - DEBUG - Processing direct command response: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.ping<...
+2025-08-07 17:02:57,075 - selve_test_2607799432960 - DEBUG - Response type: <class 'selve.commands.service.ServicePingResponse'> - Value: <selve.commands.service.ServicePingResponse object at 0x0000025F2D18AB60>
+2025-08-07 17:02:57,075 - selve_test_2607799432960 - DEBUG - Ping back
+Found COM16: USB Serial Port (COM16)
+Testing connection to hardware on port: COM16
+Connection test error: 'charmap' codec can't encode character '\u2713' in position 0: character maps to <undefined>
+SKIPPED (Hardware connection failed: 'charmap' codec can't encode character '\u2713' in position 0: character maps to ...)2025-08-07 17:02:57,077 - selve_test_2607799432960 - DEBUG - Worker not running
+2025-08-07 17:02:57,077 - selve_test_2607799432960 - DEBUG - Preparing for termination
+2025-08-07 17:02:57,077 - selve_test_2607799432960 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_gateway_version 2025-08-07 17:02:57,402 - selve_test_2607799433632 - INFO - Setup
+2025-08-07 17:02:57,479 - selve_test_2607799433632 - DEBUG - Worker not running
+2025-08-07 17:02:57,479 - selve_test_2607799433632 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.ping</methodName></methodCall>'
+2025-08-07 17:02:57,586 - selve_test_2607799433632 - DEBUG - Processing direct command response: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.ping<...
+2025-08-07 17:02:57,586 - selve_test_2607799433632 - DEBUG - Response type: <class 'selve.commands.service.ServicePingResponse'> - Value: <selve.commands.service.ServicePingResponse object at 0x0000025F2D1AB670>
+2025-08-07 17:02:57,586 - selve_test_2607799433632 - DEBUG - Ping back
+2025-08-07 17:02:57,586 - selve_test_2607799433632 - DEBUG - Starting worker
+2025-08-07 17:02:57,586 - selve_test_2607799433632 - DEBUG - Worker started
+2025-08-07 17:02:57,586 - selve_test_2607799433632 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.getVersion</methodName></methodCall>'
+2025-08-07 17:02:57,679 - selve_test_2607799433632 - DEBUG - Received: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.getVersion</string>
+		<int>24</int>
+		<int>6</int>
+		<int>4</int>
+		<int>2</int>
+		<int>0</int>
+		<string>GW-USB-00F0E280</string>
+		<int>2</int>
+	</array>
+</methodResponse>
+SKIPPED (Version test failed: 'charmap' codec can't encode character '\u2713' in position 0: character maps to <undefined>)2025-08-07 17:02:57,680 - selve_test_2607799433632 - DEBUG - Stopping worker
+2025-08-07 17:02:57,680 - selve_test_2607799433632 - DEBUG - Worker cancelled
+2025-08-07 17:02:57,680 - selve_test_2607799433632 - DEBUG - Worker stopped
+2025-08-07 17:02:57,788 - selve_test_2607799433632 - DEBUG - Preparing for termination
+2025-08-07 17:02:57,788 - selve_test_2607799433632 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_gateway_state 2025-08-07 17:02:58,006 - selve_test_2607799434304 - INFO - Setup
+2025-08-07 17:02:58,086 - selve_test_2607799434304 - DEBUG - Worker not running
+2025-08-07 17:02:58,086 - selve_test_2607799434304 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.ping</methodName></methodCall>'
+2025-08-07 17:02:58,179 - selve_test_2607799434304 - DEBUG - Processing direct command response: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.ping<...
+2025-08-07 17:02:58,180 - selve_test_2607799434304 - DEBUG - Response type: <class 'selve.commands.service.ServicePingResponse'> - Value: <selve.commands.service.ServicePingResponse object at 0x0000025F2D170160>
+2025-08-07 17:02:58,180 - selve_test_2607799434304 - DEBUG - Ping back
+2025-08-07 17:02:58,180 - selve_test_2607799434304 - DEBUG - Starting worker
+2025-08-07 17:02:58,180 - selve_test_2607799434304 - DEBUG - Worker started
+2025-08-07 17:02:58,180 - selve_test_2607799434304 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.getState</methodName></methodCall>'
+2025-08-07 17:02:58,273 - selve_test_2607799434304 - DEBUG - Received: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.getState</string>
+		<int>3</int>
+	</array>
+</methodResponse>
+2025-08-07 17:02:58,273 - selve_test_2607799434304 - DEBUG - Gateway state: ServiceState.READY
+SKIPPED (Gateway state test failed: 'charmap' codec can't encode character '\u2713' in position 0: character maps to <undefi...)2025-08-07 17:02:58,275 - selve_test_2607799434304 - DEBUG - Stopping worker
+2025-08-07 17:02:58,275 - selve_test_2607799434304 - DEBUG - Worker cancelled
+2025-08-07 17:02:58,275 - selve_test_2607799434304 - DEBUG - Worker stopped
+2025-08-07 17:02:58,381 - selve_test_2607799434304 - DEBUG - Preparing for termination
+2025-08-07 17:02:58,381 - selve_test_2607799434304 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_device_discovery 2025-08-07 17:02:58,601 - selve_test_2607799434976 - INFO - Setup
+2025-08-07 17:02:58,677 - selve_test_2607799434976 - DEBUG - Worker not running
+2025-08-07 17:02:58,677 - selve_test_2607799434976 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.ping</methodName></methodCall>'
+2025-08-07 17:02:58,771 - selve_test_2607799434976 - DEBUG - Processing direct command response: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.ping<...
+2025-08-07 17:02:58,772 - selve_test_2607799434976 - DEBUG - Response type: <class 'selve.commands.service.ServicePingResponse'> - Value: <selve.commands.service.ServicePingResponse object at 0x0000025F2D1600D0>
+2025-08-07 17:02:58,772 - selve_test_2607799434976 - DEBUG - Ping back
+device: 0 devices
+iveo: 0 devices
+group: 0 devices
+senSim: 0 devices
+sensor: 0 devices
+sender: 0 devices
+SKIPPED (Device discovery test failed: 'charmap' codec can't encode character '\u2713' in position 0: character maps to <...)2025-08-07 17:03:00,746 - selve_test_2607799434976 - DEBUG - Worker not running
+2025-08-07 17:03:00,747 - selve_test_2607799434976 - DEBUG - Preparing for termination
+2025-08-07 17:03:00,747 - selve_test_2607799434976 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_worker_functionality 2025-08-07 17:03:01,092 - selve_test_2607799434448 - INFO - Setup
+FAILED2025-08-07 17:03:01,281 - selve_test_2607799434448 - DEBUG - Worker not running
+2025-08-07 17:03:01,281 - selve_test_2607799434448 - DEBUG - Preparing for termination
+2025-08-07 17:03:01,281 - selve_test_2607799434448 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_connection_recovery 2025-08-07 17:03:01,623 - selve_test_2607799433056 - INFO - Setup
+2025-08-07 17:03:01,821 - selve_test_2607799433056 - INFO - Attempting to reconnect...
+2025-08-07 17:03:01,851 - selve_test_2607799433056 - INFO - Reconnected to COM16
+2025-08-07 17:03:01,851 - selve_test_2607799433056 - DEBUG - Worker not running
+2025-08-07 17:03:01,851 - selve_test_2607799433056 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.ping</methodName></methodCall>'
+2025-08-07 17:03:01,945 - selve_test_2607799433056 - DEBUG - Processing direct command response: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.ping<...
+2025-08-07 17:03:01,945 - selve_test_2607799433056 - DEBUG - Response type: <class 'selve.commands.service.ServicePingResponse'> - Value: <selve.commands.service.ServicePingResponse object at 0x0000025F2D17FA90>
+2025-08-07 17:03:01,945 - selve_test_2607799433056 - DEBUG - Ping back
+PASSED2025-08-07 17:03:01,946 - selve_test_2607799433056 - DEBUG - Worker not running
+2025-08-07 17:03:01,946 - selve_test_2607799433056 - DEBUG - Preparing for termination
+2025-08-07 17:03:01,946 - selve_test_2607799433056 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_led_control[True] 2025-08-07 17:03:02,275 - selve_test_2607799424704 - INFO - Setup
+2025-08-07 17:03:02,351 - selve_test_2607799424704 - DEBUG - Starting worker
+2025-08-07 17:03:02,351 - selve_test_2607799424704 - DEBUG - Worker started
+2025-08-07 17:03:02,351 - selve_test_2607799424704 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.setLED</methodName><array><int>1</int></array></methodCall>'
+2025-08-07 17:03:02,443 - selve_test_2607799424704 - DEBUG - Received: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.setLED</string>
+		<int>1</int>
+	</array>
+</methodResponse>
+2025-08-07 17:03:02,443 - selve_test_2607799424704 - DEBUG - Worker already running
+2025-08-07 17:03:02,443 - selve_test_2607799424704 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.getLED</methodName></methodCall>'
+2025-08-07 17:03:02,536 - selve_test_2607799424704 - DEBUG - Received: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.getLED</string>
+		<int>1</int>
+	</array>
+</methodResponse>
+LED set to: True
+PASSED2025-08-07 17:03:02,536 - selve_test_2607799424704 - DEBUG - Stopping worker
+2025-08-07 17:03:02,537 - selve_test_2607799424704 - DEBUG - Worker cancelled
+2025-08-07 17:03:02,537 - selve_test_2607799424704 - DEBUG - Worker stopped
+2025-08-07 17:03:02,645 - selve_test_2607799424704 - DEBUG - Preparing for termination
+2025-08-07 17:03:02,645 - selve_test_2607799424704 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_led_control[False] 2025-08-07 17:03:02,866 - selve_test_2607799425568 - INFO - Setup
+2025-08-07 17:03:02,941 - selve_test_2607799425568 - DEBUG - Starting worker
+2025-08-07 17:03:02,941 - selve_test_2607799425568 - DEBUG - Worker started
+2025-08-07 17:03:02,943 - selve_test_2607799425568 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.setLED</methodName><array><int>0</int></array></methodCall>'
+2025-08-07 17:03:03,035 - selve_test_2607799425568 - DEBUG - Received: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.setLED</string>
+		<int>1</int>
+	</array>
+</methodResponse>
+2025-08-07 17:03:03,036 - selve_test_2607799425568 - DEBUG - Worker already running
+2025-08-07 17:03:03,036 - selve_test_2607799425568 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.service.getLED</methodName></methodCall>'
+2025-08-07 17:03:03,130 - selve_test_2607799425568 - DEBUG - Received: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.service.getLED</string>
+		<int>0</int>
+	</array>
+</methodResponse>
+LED set to: False
+PASSED2025-08-07 17:03:03,130 - selve_test_2607799425568 - DEBUG - Stopping worker
+2025-08-07 17:03:03,132 - selve_test_2607799425568 - DEBUG - Worker cancelled
+2025-08-07 17:03:03,132 - selve_test_2607799425568 - DEBUG - Worker stopped
+2025-08-07 17:03:03,239 - selve_test_2607799425568 - DEBUG - Preparing for termination
+2025-08-07 17:03:03,239 - selve_test_2607799425568 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_duty_cycle_info 2025-08-07 17:03:03,457 - selve_test_2607799665520 - INFO - Setup
+2025-08-07 17:03:03,535 - selve_test_2607799665520 - DEBUG - Starting worker
+2025-08-07 17:03:03,536 - selve_test_2607799665520 - DEBUG - Worker started
+2025-08-07 17:03:03,536 - selve_test_2607799665520 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.param.getDuty</methodName></methodCall>'
+2025-08-07 17:03:03,627 - selve_test_2607799665520 - DEBUG - Received: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.param.getDuty</string>
+		<int>0</int>
+		<int>0</int>
+	</array>
+</methodResponse>
+Duty cycle info: <selve.commands.param.ParamGetDutyResponse object at 0x0000025F2D17FA60>
+Current utilization: 0
+Sending blocked: DutyMode.NOT_BLOCKED
+PASSED2025-08-07 17:03:03,627 - selve_test_2607799665520 - DEBUG - Stopping worker
+2025-08-07 17:03:03,627 - selve_test_2607799665520 - DEBUG - Worker cancelled
+2025-08-07 17:03:03,628 - selve_test_2607799665520 - DEBUG - Worker stopped
+2025-08-07 17:03:03,750 - selve_test_2607799665520 - DEBUG - Preparing for termination
+2025-08-07 17:03:03,750 - selve_test_2607799665520 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_rf_info 2025-08-07 17:03:03,972 - selve_test_2607799666192 - INFO - Setup
+2025-08-07 17:03:04,049 - selve_test_2607799666192 - DEBUG - Starting worker
+2025-08-07 17:03:04,049 - selve_test_2607799666192 - DEBUG - Worker started
+2025-08-07 17:03:04,049 - selve_test_2607799666192 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.param.getRF</methodName></methodCall>'
+2025-08-07 17:03:04,141 - selve_test_2607799666192 - DEBUG - Received: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+	<array>
+		<string>selve.GW.param.getRF</string>
+		<int>45970</int>
+		<int>130</int>
+		<int>15786624</int>
+		<int>45970</int>
+		<int>14621776</int>
+		<int>2</int>
+		<int>101120</int>
+	</array>
+</methodResponse>
+RF info: <selve.commands.param.ParamGetRfResponse object at 0x0000025F2D17DED0>
+PASSED2025-08-07 17:03:04,141 - selve_test_2607799666192 - DEBUG - Stopping worker
+2025-08-07 17:03:04,141 - selve_test_2607799666192 - DEBUG - Worker cancelled
+2025-08-07 17:03:04,141 - selve_test_2607799666192 - DEBUG - Worker stopped
+2025-08-07 17:03:04,264 - selve_test_2607799666192 - DEBUG - Preparing for termination
+2025-08-07 17:03:04,264 - selve_test_2607799666192 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_event_handling 2025-08-07 17:03:04,479 - selve_test_2607799666912 - INFO - Setup
+2025-08-07 17:03:04,556 - selve_test_2607799666912 - DEBUG - Starting worker
+2025-08-07 17:03:04,556 - selve_test_2607799666912 - DEBUG - Worker started
+2025-08-07 17:03:04,556 - selve_test_2607799666912 - DEBUG - Sending: b'<methodCall><methodName>selve.GW.param.setEvent</methodName><array><int>True</int><int>True</int><int>True</int><int>True</int><int>True</int></array></methodCall>'
+2025-08-07 17:03:04,662 - selve_test_2607799666912 - DEBUG - Received: <?xml version="1.0" encoding="UTF-8"?>
+<methodResponse>
+<fault>
+	<array>
+		<string>Syntax error!</string>
+		<int>8</int>
+	</array>
+</fault>
+</methodResponse>
+Total events received: 0
+PASSED2025-08-07 17:03:09,651 - selve_test_2607799666912 - DEBUG - Stopping worker
+2025-08-07 17:03:09,651 - selve_test_2607799666912 - DEBUG - Worker cancelled
+2025-08-07 17:03:09,651 - selve_test_2607799666912 - DEBUG - Worker stopped
+2025-08-07 17:03:09,757 - selve_test_2607799666912 - DEBUG - Preparing for termination
+2025-08-07 17:03:09,757 - selve_test_2607799666912 - DEBUG - Worker not running
+
+tests/test_selve_hardware.py::TestSelveHardwareStress::test_rapid_ping_sequence Found COM16: USB Serial Port (COM16)
+Ping stress test results:
+  Total pings: 50
+  Successful: 50
+  Success rate: 100.0%
+  Duration: 9.40s
+  Rate: 5.3 pings/s
+PASSED
+tests/test_selve_hardware.py::TestSelveHardwareStress::test_worker_stability Found COM16: USB Serial Port (COM16)
+Worker stability test completed:
+  Duration: 30s
+  Commands sent: 16
+  Worker still running: True
+PASSED
+tests/test_selve_integration.py::TestSelveCommandsIntegration::test_service_commands_integration PASSED
+tests/test_selve_integration.py::TestSelveCommandsIntegration::test_device_commands_integration PASSED
+tests/test_selve_integration.py::TestSelveCommandsIntegration::test_event_processing_integration PASSED
+tests/test_selve_integration.py::TestSelveDiscoveryIntegration::test_full_discovery_process PASSED
+tests/test_selve_integration.py::TestSelveErrorScenarios::test_discovery_with_gateway_not_ready PASSED
+tests/test_selve_integration.py::TestSelveErrorScenarios::test_command_execution_with_errors PASSED
+tests/test_selve_integration.py::TestSelveErrorScenarios::test_event_processing_errors PASSED
+tests/test_selve_integration.py::TestSelveErrorScenarios::test_worker_error_recovery PASSED
+tests/test_selve_integration.py::TestSelveLogging::test_logging_integration PASSED
+tests/test_selve_integration.py::TestSelveLogging::test_log_event_processing PASSED
+tests/test_selve_structure.py::TestSelveUtilities::test_device_type_validation PASSED
+tests/test_selve_structure.py::TestSelveUtilities::test_command_serialization PASSED
+tests/test_selve_structure.py::TestSelveUtilities::test_error_classes PASSED
+tests/test_selve_structure.py::TestSelveDeviceClasses::test_selve_device_creation PASSED
+tests/test_selve_structure.py::TestSelveDeviceClasses::test_selve_sensor_creation PASSED
+tests/test_selve_structure.py::TestSelveDeviceClasses::test_selve_sender_creation PASSED
+tests/test_selve_structure.py::TestSelveDeviceClasses::test_selve_group_creation PASSED
+tests/test_selve_structure.py::TestSelveDeviceClasses::test_iveo_device_creation PASSED
+tests/test_selve_structure.py::TestSelveDeviceClasses::test_sensim_creation PASSED
+tests/test_selve_structure.py::TestSelveCommandClasses::test_service_commands PASSED
+tests/test_selve_structure.py::TestSelveCommandClasses::test_device_commands PASSED
+tests/test_selve_structure.py::TestSelveCommandClasses::test_sensor_commands PASSED
+tests/test_selve_structure.py::TestSelveCommandClasses::test_sender_commands PASSED
+tests/test_selve_structure.py::TestSelveCommandClasses::test_group_commands PASSED
+tests/test_selve_structure.py::TestSelveCommandClasses::test_iveo_commands PASSED
+tests/test_selve_structure.py::TestSelveProtocol::test_parameter_types PASSED
+tests/test_selve_structure.py::TestSelveProtocol::test_command_base_class PASSED
+tests/test_selve_structure.py::TestSelveProtocol::test_response_processing PASSED
+tests/test_selve_structure.py::TestSelveConstants::test_movement_states PASSED
+tests/test_selve_structure.py::TestSelveConstants::test_device_functions PASSED
+tests/test_selve_structure.py::TestSelveConstants::test_communication_types PASSED
+tests/test_selve_structure.py::TestSelveDataStructures::test_device_storage_structure PASSED
+tests/test_selve_structure.py::TestSelveDataStructures::test_callback_storage PASSED
+tests/test_selve_structure.py::TestSelveConfiguration::test_serial_parameters PASSED
+tests/test_selve_structure.py::TestSelveConfiguration::test_timeout_configuration PASSED
+tests/test_selve_structure.py::TestSelveConfiguration::test_option_handling PASSED
+tests/test_selve_unit.py::TestSelveInitialization::test_init_default_parameters PASSED
+tests/test_selve_unit.py::TestSelveInitialization::test_init_with_parameters PASSED
+tests/test_selve_unit.py::TestSerialConnection::test_setup_with_valid_port PASSED
+tests/test_selve_unit.py::TestSerialConnection::test_setup_port_scanning PASSED
+tests/test_selve_unit.py::TestSerialConnection::test_setup_no_ports_available PASSED
+tests/test_selve_unit.py::TestSerialConnection::test_connection_recovery PASSED
+tests/test_selve_unit.py::TestWorkerManagement::test_start_worker PASSED
+tests/test_selve_unit.py::TestWorkerManagement::test_stop_worker PASSED
+tests/test_selve_unit.py::TestWorkerManagement::test_worker_already_running PASSED
+tests/test_selve_unit.py::TestWorkerManagement::test_worker_graceful_shutdown PASSED
+tests/test_selve_unit.py::TestCommandExecution::test_execute_command_async PASSED
+tests/test_selve_unit.py::TestCommandExecution::test_execute_command_sync_with_response PASSED
+tests/test_selve_unit.py::TestCommandExecution::test_execute_command_timeout PASSED
+tests/test_selve_unit.py::TestDeviceManagement::test_add_device PASSED
+tests/test_selve_unit.py::TestDeviceManagement::test_get_device PASSED
+tests/test_selve_unit.py::TestDeviceManagement::test_is_id_registered PASSED
+tests/test_selve_unit.py::TestDeviceManagement::test_find_free_id PASSED
+tests/test_selve_unit.py::TestResponseProcessing::test_process_response_valid_xml PASSED
+tests/test_selve_unit.py::TestResponseProcessing::test_process_response_invalid_xml PASSED
+tests/test_selve_unit.py::TestResponseProcessing::test_process_response_malformed_header PASSED
+tests/test_selve_unit.py::TestCallbacks::test_register_callback PASSED
+tests/test_selve_unit.py::TestCallbacks::test_remove_callback PASSED
+tests/test_selve_unit.py::TestCallbacks::test_register_event_callback PASSED
+tests/test_selve_unit.py::TestErrorHandling::test_worker_error_handling PASSED
+tests/test_selve_unit.py::TestErrorHandling::test_connection_error_recovery PASSED
+
+====================================================================================================== FAILURES ======================================================================================================
+_______________________________________________________________________________ TestSelveHardwareIntegration.test_worker_functionality _______________________________________________________________________________
+
+self = <tests.test_selve_hardware.TestSelveHardwareIntegration object at 0x0000025F2CF57CD0>, setup_selve = <selve.Selve object at 0x0000025F2D162D70>
+
+    @pytest.mark.asyncio
+    @pytest.mark.hardware
+    async def test_worker_functionality(self, setup_selve):
+        """Test worker thread functionality with real hardware"""
+        try:
+            # Worker should be running after setup
+>           assert setup_selve._worker_running is True, "Worker not running after setup"
+E           AssertionError: Worker not running after setup
+E           assert False is True
+E            +  where False = <selve.Selve object at 0x0000025F2D162D70>._worker_running
+
+tests\test_selve_hardware.py:237: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+self = <tests.test_selve_hardware.TestSelveHardwareIntegration object at 0x0000025F2CF57CD0>, setup_selve = <selve.Selve object at 0x0000025F2D162D70>
+
+    @pytest.mark.asyncio
+    @pytest.mark.hardware
+    async def test_worker_functionality(self, setup_selve):
+        """Test worker thread functionality with real hardware"""
+        try:
+            # Worker should be running after setup
+            assert setup_selve._worker_running is True, "Worker not running after setup"
+    
+            # Test async command execution
+            command = ServicePing()
+            await setup_selve.executeCommand(command)
+    
+            # Wait a moment for command processing
+            await asyncio.sleep(1)
+    
+            # Stop worker
+            await setup_selve.stopWorker()
+            assert setup_selve._worker_running is False, "Worker still running after stop"
+    
+        except Exception as e:
+>           pytest.fail(f"Worker functionality test failed: {e}")
+E           Failed: Worker functionality test failed: Worker not running after setup
+E           assert False is True
+E            +  where False = <selve.Selve object at 0x0000025F2D162D70>._worker_running
+
+tests\test_selve_hardware.py:251: Failed
+------------------------------------------------------------------------------------------------- Captured log setup -------------------------------------------------------------------------------------------------
+INFO     selve_test_2607799434448:__init__.py:393 Setup
+----------------------------------------------------------------------------------------------- Captured log teardown ------------------------------------------------------------------------------------------------
+DEBUG    selve_test_2607799434448:__init__.py:563 Worker not running
+DEBUG    selve_test_2607799434448:__init__.py:603 Preparing for termination
+DEBUG    selve_test_2607799434448:__init__.py:563 Worker not running
+================================================================================================== warnings summary ==================================================================================================
+tests/test_selve_unit.py::TestSerialConnection::test_setup_with_valid_port
+  c:\Users\Stefan\Documents\Projekte\python-selve-new\tests\..\selve\__init__.py:163: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    if self._reader and not self._reader.at_eof():
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_selve_unit.py::TestWorkerManagement::test_worker_graceful_shutdown
+  c:\Users\Stefan\Documents\Projekte\python-selve-new\tests\..\selve\__init__.py:573: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    if self._worker_task and not self._worker_task.done():
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================================================================================== short test summary info ===============================================================================================
+FAILED tests/test_selve_hardware.py::TestSelveHardwareIntegration::test_worker_functionality - Failed: Worker functionality test failed: Worker not running after setup
+================================================================================ 1 failed, 82 passed, 4 skipped, 2 warnings in 56.79s ================================================================================

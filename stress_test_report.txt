@@ -1,0 +1,42 @@
+================================================================================================ test session starts =================================================================================================
+platform win32 -- Python 3.10.6, pytest-8.4.1, pluggy-1.6.0 -- c:\Users\Stefan\Documents\Projekte\python-selve-new\venv\Scripts\python.exe
+cachedir: .pytest_cache
+metadata: {'Python': '3.10.6', 'Platform': 'Windows-10-10.0.26100-SP0', 'Packages': {'pytest': '8.4.1', 'pluggy': '1.6.0'}, 'Plugins': {'asyncio': '1.1.0', 'cov': '6.2.1', 'html': '4.1.1', 'metadata': '3.1.1', 'mock': '3.14.1', 'xdist': '3.8.0'}, 'JAVA_HOME': 'C:\\Program Files\\OpenJDK\\jdk-22.0.2'}
+rootdir: c:\Users\Stefan\Documents\Projekte\python-selve-new
+configfile: pytest.ini
+plugins: asyncio-1.1.0, cov-6.2.1, html-4.1.1, metadata-3.1.1, mock-3.14.1, xdist-3.8.0
+asyncio: mode=strict, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... Found COM16: USB Serial Port (COM16)
+Hardware detected on port: COM16
+collected 13 items / 11 deselected / 2 selected
+
+tests/test_selve_hardware.py::TestSelveHardwareStress::test_rapid_ping_sequence Found COM16: USB Serial Port (COM16)
+Ping stress test results:
+  Total pings: 50
+  Successful: 50
+  Success rate: 100.0%
+  Duration: 9.43s
+  Rate: 5.3 pings/s
+PASSED
+tests/test_selve_hardware.py::TestSelveHardwareStress::test_worker_stability Found COM16: USB Serial Port (COM16)
+Worker stability test completed:
+  Duration: 30s
+  Commands sent: 15
+  Worker still running: True
+PASSED
+
+========================================================================================= 2 passed, 11 deselected in 40.09s ==========================================================================================
+Python Selve Test Runner
+========================================
+Test type: stress
+Verbose: True
+Coverage: False
+Hardware port: COM16
+
+Potential hardware detected on COM16: USB Serial Port (COM16)
+Running stress tests...
+Command: venv/Scripts/python.exe -m pytest -v -s -m stress tests/test_selve_hardware.py
+------------------------------------------------------------
+
+============================================================
+All tests completed successfully!

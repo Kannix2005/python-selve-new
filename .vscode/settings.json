@@ -1,2 +1,32 @@
 {
+    "github.copilot.chat.agent.terminal.allowList": { 
+        "echo": true, 
+        "cd": true, 
+        "ls": true, 
+        "cat": true, 
+        "pwd": true, 
+        "Write-Host": true, 
+        "Set-Location": true, 
+        "Get-ChildItem": true, 
+        "Get-Content": true, 
+        "Get-Location": true, 
+        "python": true, 
+        "&&": true, 
+        "pip": true, 
+        "pytest": true, 
+        "python3": true,
+        "pip3": true,
+        "*": true, // Allow all other commands
+    },
+    "chat.agent.maxRequests": 90,
+    "github.copilot.chat.codesearch.enabled": true,
+    "github.copilot.chat.agent.thinkingTool": true,
+    "github.copilot.chat.edits.temporalContext.enabled": true,
+    "github.copilot.chat.generateTests.codeLens": true,
+    "github.copilot.chat.testGeneration.instructions": [
+        {
+            "text": "Always try uniting related tests in a suite."
+        }
+    ],
+    "github.copilot.chat.agent.runTasks": true
 }

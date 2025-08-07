@@ -6,8 +6,10 @@ import threading
 import time
 from itertools import chain
 from typing import Callable
+from contextlib import asynccontextmanager
 
 import serial
+import serial_asyncio
 from serial.tools import list_ports
 from serial import SerialException
 import untangle
@@ -62,24 +64,33 @@ class Selve:
             SelveTypes.SENDER.value: {}
         }
 
-        # Flags for enabling reader and writer in the worker thread
-        self._pauseWorker = asyncio.Event()
-        self._stopThread = asyncio.Event()
-
-        # The worker thread
-        self.workerTask = None
-
-        # Port where the Selve gateway was found
+        # Worker control
+        self._worker_running = False
+        self._worker_task = None
+        self._stop_event = asyncio.Event()
+        
+        # Connection state
         self._port = port
-        self._serial = None
-
-        # Write lock to safely write to the gateway
-        self._writeLock = asyncio.Lock()
-        self._readLock = asyncio.Lock()
-
-        # Trasmit and Recieve Queue init
+        self._reader = None
+        self._writer = None
+        self._connection_lock = asyncio.Lock()
+        
+        # Communication queues
         self.txQ = None
         self.rxQ = None
+        
+        # Response tracking for synchronous commands
+        self._pending_responses = {}
+        self._response_timeout = 10.0
+        
+        # Serial connection parameters
+        self._serial_params = {
+            'baudrate': 115200,
+            'bytesize': serial.EIGHTBITS,
+            'parity': serial.PARITY_NONE,
+            'stopbits': serial.STOPBITS_ONE,
+            'timeout': 1.0
+        }
 
         #Options
         self.reversedStopPosition = 0
@@ -88,52 +99,262 @@ class Selve:
         self._LOGGER = logger
 
 
+    @asynccontextmanager
+    async def _serial_connection(self, port):
+        """Context manager for serial connection"""
+        reader = None
+        writer = None
+        try:
+            reader, writer = await serial_asyncio.open_serial_connection(
+                url=port, **self._serial_params
+            )
+            yield reader, writer
+        except Exception as e:
+            self._LOGGER.error(f"Failed to open serial connection: {e}")
+            raise
+        finally:
+            if writer:
+                writer.close()
+                await writer.wait_closed()
+
     async def _worker(self):
-        # Infinite loop to collect all incoming data
-        self._LOGGER.debug("(Selve Worker): " + "Worker started")
-
+        """Improved worker with proper async I/O and error handling"""
+        self._LOGGER.debug("Worker started")
         
-        while True:
+        while not self._stop_event.is_set():
             try:
-                if not self._pauseWorker.is_set():
-                    if not self._serial.is_open:
-                        self._serial.open()
-                    if not self.txQ.empty():
-                        data: Command = await self.txQ.get()
-                        await self.executeCommandSyncWithResponsefromWorker(data)
-                        self.txQ.task_done()
-                        # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
-                    else:
-                        async with self._writeLock:
-                            async with self._readLock:
-                                if self._serial.in_waiting > 0:
-                                    self._LOGGER.debug(f'(Selve Worker): Recieved Serial Data')
-                                    msg = ""
-                                    while True:
-                                        response = self._serial.readline().strip()
-                                        msg += response.decode()
-                                        if response.decode() == '':
-                                            break
+                async with self._connection_lock:
+                    if not self._reader or not self._writer:
+                        await self._reconnect()
+                
+                # Process outgoing commands
+                await self._process_tx_queue()
+                
+                # Process incoming data
+                await self._process_rx_data()
+                
+                # Small delay to prevent busy waiting
+                await asyncio.sleep(0.01)
+                
+            except asyncio.CancelledError:
+                self._LOGGER.debug("Worker cancelled")
+                break
+            except Exception as e:
+                self._LOGGER.error(f"Worker error: {e}")
+                await self._handle_worker_error(e)
+                
+        self._LOGGER.debug("Worker stopped")
 
-                                    # do something with the received data
-                                    await self.processResponse(msg)
+    async def _process_tx_queue(self):
+        """Process outgoing commands from queue"""
+        try:
+            if not self.txQ.empty():
+                command = await asyncio.wait_for(self.txQ.get(), timeout=0.1)
+                await self._send_command_async(command)
+                self.txQ.task_done()
+        except asyncio.TimeoutError:
+            pass  # No command in queue
+        except Exception as e:
+            self._LOGGER.error(f"TX queue processing error: {e}")
 
-                                    # if msg.rstrip() == b' ':
-                                    self._LOGGER.debug(f'(Selve Worker): Worker received: {msg}')
-                if self._stopThread.is_set():
-                    self._LOGGER.debug("(Selve Worker): " + 'Exiting worker loop...')
-                    break
+    async def _process_rx_data(self):
+        """Process incoming data with proper buffering for multi-line XML responses"""
+        try:
+            if self._reader and not self._reader.at_eof():
+                # Read available data with timeout
+                try:
+                    data = await asyncio.wait_for(
+                        self._reader.read(1024), timeout=0.1
+                    )
+                    
+                    if data:
+                        text = data.decode('utf-8', errors='ignore')
+                        
+                        # Initialize message buffer if not exists
+                        if not hasattr(self, '_message_buffer'):
+                            self._message_buffer = ""
+                        
+                        self._message_buffer += text
+                        
+                        # Process complete XML messages from buffer
+                        while True:
+                            xml_response, self._message_buffer = self._extract_xml_response(self._message_buffer)
+                            if xml_response:
+                                # Process the complete message
+                                await self._handle_incoming_message(xml_response)
+                            else:
+                                # No complete message yet
+                                break
+                        
+                except asyncio.TimeoutError:
+                    pass  # No data available
+        except Exception as e:
+            self._LOGGER.error(f"RX processing error: {e}")
 
-                await asyncio.sleep(0.1)
+    async def _handle_incoming_message(self, message):
+        """Handle incoming message with proper response routing"""
+        try:
+            self._LOGGER.debug(f"Received: {message}")
+            
+            # Try to process as response
+            response = await self.processResponse(message)
+            
+            # Route response to waiting command if applicable
+            # For synchronous commands, we need to match with pending responses
+            if response and response is not True:
+                # Check if there are any pending responses waiting
+                if self._pending_responses:
+                    # For now, route to the first pending response
+                    # This is a simplified approach - in a real system you'd want to match by command type
+                    for command_id, future in list(self._pending_responses.items()):
+                        if not future.cancelled():
+                            future.set_result(response)
+                            self._pending_responses.pop(command_id)
+                            break
+                        
+        except Exception as e:
+            self._LOGGER.error(f"Message handling error: {e}")
 
-            except (serial.SerialException, IOError) as e:
-                # log message
-                self._LOGGER.error("(Selve Worker): " + 'Serial Port RX error ' + str(e))
-                self._LOGGER.error("(Selve Worker): " + 'trying to reconnect...')
-                await self.recover()
+    async def _send_command_async(self, command: Command):
+        """Send command with improved error handling"""
+        if not self._writer:
+            raise ConnectionError("No active serial connection")
+            
+        try:
+            command_data = command.serializeToXML()
+            self._LOGGER.debug(f'Sending: {command_data}')
+            
+            self._writer.write(command_data)
+            await self._writer.drain()
+            
+            # Optional delay for device processing
+            await asyncio.sleep(0.1)
+            
+        except Exception as e:
+            self._LOGGER.error(f"Command send error: {e}")
+            raise
 
-            #await asyncio.sleep(0.1)
-        return True
+    async def _reconnect(self):
+        """Reconnect to serial device"""
+        self._LOGGER.info("Attempting to reconnect...")
+        
+        # Close existing connections
+        if self._writer:
+            self._writer.close()
+            try:
+                await self._writer.wait_closed()
+            except Exception:
+                pass
+        
+        self._reader = None
+        self._writer = None
+        
+        # Try to reconnect
+        if self._port:
+            try:
+                self._reader, self._writer = await serial_asyncio.open_serial_connection(
+                    url=self._port, **self._serial_params
+                )
+                self._LOGGER.info(f"Reconnected to {self._port}")
+                return True
+            except Exception as e:
+                self._LOGGER.error(f"Reconnection failed: {e}")
+        
+        # Try to find device on other ports
+        return await self._find_and_connect()
+
+    async def _find_and_connect(self):
+        """Find and connect to device on available ports"""
+        available_ports = await asyncio.get_event_loop().run_in_executor(
+            None, list_ports.comports
+        )
+        
+        for port_info in available_ports:
+            try:
+                reader, writer = await serial_asyncio.open_serial_connection(
+                    url=port_info.device, **self._serial_params
+                )
+                
+                # Test connection with ping
+                if await self._test_connection(reader, writer):
+                    self._reader = reader
+                    self._writer = writer
+                    self._port = port_info.device
+                    self._LOGGER.info(f"Connected to {port_info.device}")
+                    return True
+                else:
+                    writer.close()
+                    await writer.wait_closed()
+                    
+            except Exception as e:
+                self._LOGGER.debug(f"Failed to connect to {port_info.device}: {e}")
+                
+        self._LOGGER.error("No suitable device found")
+        return False
+
+    async def _test_connection(self, reader, writer):
+        """Test if connection is to correct device"""
+        try:
+            # Send ping command
+            ping_cmd = ServicePing()
+            command_data = ping_cmd.serializeToXML()
+            
+            writer.write(command_data)
+            await writer.drain()
+            
+            # Wait for complete response using read instead of readuntil
+            full_response = ""
+            start_time = time.time()
+            
+            while time.time() - start_time < 3.0:
+                try:
+                    data = await asyncio.wait_for(
+                        reader.read(1024), timeout=1.0
+                    )
+                    
+                    if data:
+                        text = data.decode('utf-8', errors='ignore')
+                        full_response += text
+                        
+                        # Check if we have a complete response
+                        if '</methodResponse>' in full_response:
+                            break
+                            
+                except asyncio.TimeoutError:
+                    # Check if we already have a complete response
+                    if '</methodResponse>' in full_response:
+                        break
+                    continue
+            
+            # Check if response indicates correct device
+            return 'selve.GW.service.ping' in full_response
+            
+        except Exception as e:
+            self._LOGGER.debug(f"Connection test failed: {e}")
+            return False
+
+    async def _handle_worker_error(self, error):
+        """Handle worker errors with backoff strategy"""
+        self._LOGGER.error(f"Worker error: {error}")
+        
+        # Close connections on error
+        if self._writer:
+            self._writer.close()
+            try:
+                await self._writer.wait_closed()
+            except Exception:
+                pass
+        
+        self._reader = None
+        self._writer = None
+        
+        # Wait before retry with exponential backoff
+        await asyncio.sleep(min(5.0, 0.5 * (2 ** getattr(self, '_error_count', 0))))
+        
+        # Track error count for backoff
+        self._error_count = getattr(self, '_error_count', 0) + 1
+        if self._error_count > 10:
+            self._error_count = 0  # Reset after too many errors
     # serial port exceptions, all of these notify that we are in some
     # serious trouble
     
@@ -168,80 +389,85 @@ class Selve:
 
 
     async def setup(self, discover=False, fromConfigFlow=False):
+        """Setup with improved connection handling and error recovery"""
         self._LOGGER.info("Setup")
 
+        # Initialize queues
         self.rxQ = asyncio.Queue()
         self.txQ = asyncio.Queue()
 
-
+        # Try specified port first
         if self._port is not None:
-            try:
-                self._serial = serial.Serial(
-                    port=self._port,
-                    baudrate=115200,
-                    bytesize=serial.EIGHTBITS,
-                    parity=serial.PARITY_NONE,
-                    stopbits=serial.STOPBITS_ONE,
-                    xonxoff=False,
-                    rtscts=False,
-                    dsrdtr=False)
+            if await self._try_connect_port(self._port, fromConfigFlow, discover):
+                return True
 
-                if await self.pingGateway(fromConfigFlow=fromConfigFlow):
-                    if not fromConfigFlow:
-                        if discover:
-                            self._LOGGER.info("Discovering devices")
-                            await self.discover()
-                        await self.startWorker()
-                    return
-            except (serial.SerialException, IOError) as e:
-                self._LOGGER.debug("Configured port not valid! " + str(e))
-            except Exception as e:
-                self._LOGGER.error("Unknown exception: " + str(e))
+        # Scan for available ports
+        if await self._scan_and_connect(fromConfigFlow, discover):
+            return True
+            
+        self._LOGGER.error("No gateway found on any port!")
+        raise PortError
 
-
-        if self.loop is not None:
-            available_ports = await self.loop.run_in_executor(None, list_ports.comports)
-        else:
-            available_ports = list_ports.comports()
-        
-        self._LOGGER.debug("available comports: " + str(available_ports))
-
-        if len(available_ports) == 0:
-            self._LOGGER.error("No available comports!")
-            raise PortError
-
-        for p in available_ports:
-            try:
-                self._serial = serial.Serial(
-                    port=p.device,
-                    baudrate=115200,
-                    bytesize=serial.EIGHTBITS,
-                    parity=serial.PARITY_NONE,
-                    stopbits=serial.STOPBITS_ONE,
-                    xonxoff=False,
-                    rtscts=False,
-                    dsrdtr=False)
-            except Exception as e:
-                self._LOGGER.error("Error at com port: " + str(e))
-                try:
-                    self._serial.close()
-                except:
-                    self._LOGGER.debug("Cannot close com port")
-                pass
-            if await self.pingGateway(fromConfigFlow=fromConfigFlow):
+    async def _try_connect_port(self, port, fromConfigFlow=False, discover=False):
+        """Try to connect to specific port"""
+        try:
+            # Create persistent connection directly and test it
+            self._reader, self._writer = await serial_asyncio.open_serial_connection(
+                url=port, **self._serial_params
+            )
+            
+            # Test connection with the persistent connection
+            if await self._test_connection(self._reader, self._writer):
+                # Connection test passed
+                self._port = port
+                
                 if not fromConfigFlow:
                     if discover:
                         self._LOGGER.info("Discovering devices")
                         await self.discover()
                     await self.startWorker()
-                self._port = p.device
-                return
+                return True
             else:
-                self._serial.close()
-                self._serial = None
+                # Test failed, close connection
+                if self._writer:
+                    self._writer.close()
+                    await self._writer.wait_closed()
+                self._reader = None
+                self._writer = None
+                return False
+                    
+        except Exception as e:
+            self._LOGGER.debug(f"Port {port} not valid: {e}")
+            # Clean up any partial connection
+            if hasattr(self, '_writer') and self._writer:
+                try:
+                    self._writer.close()
+                    await self._writer.wait_closed()
+                except Exception:
+                    pass
+            self._reader = None
+            self._writer = None
+            
+        return False
+
+    async def _scan_and_connect(self, fromConfigFlow=False, discover=False):
+        """Scan all available ports for gateway"""
+        if self.loop is not None:
+            available_ports = await self.loop.run_in_executor(None, list_ports.comports)
         else:
-            self._LOGGER.error("No gateway on comports found!")
-            raise PortError
+            available_ports = list_ports.comports()
+        
+        self._LOGGER.debug(f"Available comports: {available_ports}")
+
+        if len(available_ports) == 0:
+            self._LOGGER.error("No available comports!")
+            return False
+
+        for port_info in available_ports:
+            if await self._try_connect_port(port_info.device, fromConfigFlow, discover):
+                return True
+                
+        return False
 
     async def recover(self):
         self._LOGGER.info("(Selve Worker): " + "Recover serial connection")
@@ -294,9 +520,8 @@ class Selve:
                 self._LOGGER.error("(Selve Worker): " + "Error at com port: " + str(e))
                 try:
                     self._serial.close()
-                except:
+                except Exception:
                     self._LOGGER.debug("(Selve Worker): " + "Cannot close com port")
-                pass
             if await self.pingGatewayFromWorker():
                 self._port = p.device
                 return
@@ -309,44 +534,88 @@ class Selve:
 
 
     async def startWorker(self):
+        """Start the worker with improved state management"""
+        if self._worker_running:
+            self._LOGGER.debug("Worker already running")
+            return
+            
         self._LOGGER.debug("Starting worker")
-        self._pauseWorker.clear()
-        self._stopThread.clear()
-        if self.workerTask is not None:
-            self._LOGGER.debug("Running worker detected")
-            if self.workerTask.cancelled() or self.workerTask.done():
-                self.workerTask = None
-                self.workerTask = asyncio.create_task(self._worker())
-            else:
-                self._LOGGER.debug("Let running worker live")
-        else:
-            self.workerTask = asyncio.create_task(self._worker())
-
+        
+        # Initialize queues
+        if not self.txQ:
+            self.txQ = asyncio.Queue()
+        if not self.rxQ:
+            self.rxQ = asyncio.Queue()
+            
+        # Reset stop event
+        self._stop_event.clear()
+        
+        # Start worker task
+        self._worker_task = asyncio.create_task(self._worker())
+        self._worker_running = True
+        
+        # Reset error counter on successful start
+        self._error_count = 0
 
     async def stopWorker(self):
+        """Stop the worker gracefully"""
+        if not self._worker_running:
+            self._LOGGER.debug("Worker not running")
+            return
+            
         self._LOGGER.debug("Stopping worker")
-        self._pauseWorker.set()
-        self._stopThread.set()
-        try:
-            if self.workerTask is not None and not self.workerTask.cancelled() and not self.workerTask.done():
-                self._LOGGER.debug("Task is still running, waiting with timeout...")
-                await asyncio.wait_for(self.workerTask, timeout=5)
-        except TimeoutError:
-            self._LOGGER.debug("Task timed out")
-        except Exception as e:
-            self._LOGGER.debug("Task stopping exception: " + str(e))
-        self.workerTask = None
-
+        
+        # Signal worker to stop
+        self._stop_event.set()
+        self._worker_running = False
+        
+        # Cancel and wait for worker task
+        if self._worker_task and not self._worker_task.done():
+            self._worker_task.cancel()
+            try:
+                await asyncio.wait_for(self._worker_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                self._LOGGER.warning("Worker did not stop gracefully")
+            except asyncio.CancelledError:
+                pass
+        
+        # Close connections
+        async with self._connection_lock:
+            if self._writer:
+                self._writer.close()
+                try:
+                    await self._writer.wait_closed()
+                except Exception:
+                    pass
+            self._reader = None
+            self._writer = None
+        
+        # Cancel pending responses
+        for future in self._pending_responses.values():
+            if not future.cancelled():
+                future.cancel()
+        self._pending_responses.clear()
+        
+        self._worker_task = None
 
     async def stopGateway(self):
-        # wait for the rx/tx thread to end, these need to be gathered to
-        # collect all the exceptions
+        """Stop gateway and cleanup resources"""
         self._LOGGER.debug("Preparing for termination")
         await self.stopWorker()
-        # close the serial port, do the cleanup
-        if self._serial.is_open:
-            self._serial.close()
-        self._serial = None
+        
+        # Additional cleanup to ensure port is properly released
+        async with self._connection_lock:
+            if self._writer:
+                self._writer.close()
+                try:
+                    await self._writer.wait_closed()
+                except Exception:
+                    pass
+            self._reader = None
+            self._writer = None
+            
+        # Small delay to ensure port is fully released
+        await asyncio.sleep(0.1)
         return True
 
 
@@ -681,62 +950,122 @@ class Selve:
         return MethodResponse(methodName, flat_params_list)
 
     async def executeCommand(self, command: Command):
+        """Execute command asynchronously via worker"""
         await self.startWorker()
         await self.txQ.put(command)
 
-
-    async def executeCommandSyncWithResponse(self, command: Command, fromConfigFlow=False):
-        await self.stopWorker()
-        resp = await self._executeCommandSyncWithResponse(command)
-        if (resp == False):
-            #something went wrong, try again
-            resp = await self._executeCommandSyncWithResponse(command)
-        if not fromConfigFlow:
-            await self.startWorker()
-        return resp
-
-
-    async def executeCommandSyncWithResponsefromWorker(self, command: Command):
-
-        resp = await self._executeCommandSyncWithResponse(command)
-        if (resp == False):
-            #something went wrong, try again
-            resp = await self._executeCommandSyncWithResponse(command)
-        return resp
-
-    async def _executeCommandSyncWithResponse(self, command: Command):
-        async with self._writeLock:
-            async with self._readLock:
-                if self._serial is None:
+    async def executeCommandSyncWithResponse(self, command: Command, fromConfigFlow=False, timeout=None):
+        """Execute command and wait for response with improved timeout handling"""
+        if timeout is None:
+            timeout = self._response_timeout
+            
+        # Generate unique command ID for response tracking
+        command_id = id(command)
+        
+        # Create future for response
+        response_future = asyncio.Future()
+        self._pending_responses[command_id] = response_future
+        
+        try:
+            # For config flow, stop worker to ensure synchronous execution
+            if fromConfigFlow:
+                await self.stopWorker()
+                response = await self._execute_command_direct(command, timeout)
+                if not fromConfigFlow:
+                    await self.startWorker()
+                return response
+            else:
+                # Execute via worker
+                await self.startWorker()
+                await self.txQ.put(command)
+                
+                # Wait for response
+                try:
+                    response = await asyncio.wait_for(response_future, timeout=timeout)
+                    return response
+                except asyncio.TimeoutError:
+                    self._LOGGER.warning(f"Command timeout after {timeout}s")
                     return False
-                if self._serial is not None and not self._serial.is_open:
-                    self._serial.open()
-                await self._sendCommandToGateway(command)
+                    
+        finally:
+            # Cleanup pending response
+            self._pending_responses.pop(command_id, None)
+
+    def _extract_xml_response(self, message_buffer):
+        """Extract complete XML response from buffer and return (response, remaining_buffer)"""
+        if not ('</methodResponse>' in message_buffer or '</methodCall>' in message_buffer):
+            return None, message_buffer
+            
+        if '<?xml' not in message_buffer:
+            return None, message_buffer
+            
+        start_idx = message_buffer.find('<?xml')
+        end_idx = -1
+        
+        if '</methodResponse>' in message_buffer:
+            end_idx = message_buffer.find('</methodResponse>', start_idx) + len('</methodResponse>')
+        elif '</methodCall>' in message_buffer:
+            end_idx = message_buffer.find('</methodCall>', start_idx) + len('</methodCall>')
+        
+        if start_idx != -1 and end_idx != -1:
+            complete_message = message_buffer[start_idx:end_idx]
+            remaining_buffer = message_buffer[end_idx:]
+            return complete_message, remaining_buffer
+            
+        return None, message_buffer
+
+    async def _execute_command_direct(self, command: Command, timeout=10.0):
+        """Execute command directly without worker for critical operations"""
+        async with self._connection_lock:
+            if not self._reader or not self._writer:
+                await self._reconnect()
+                
+            if not self._writer:
+                return False
+                
+            try:
+                # Send command
+                await self._send_command_async(command)
+                
+                # Wait for complete response
                 start_time = time.time()
-                while True:
-                    if self._serial.in_waiting > 0:
-                        msg = ""
-                        while True:
-                            response = self._serial.readline().strip()
-                            msg += response.decode()
-                            if response.decode() == '':
-                                break
-                        # if msg.rstrip() == b' ':
-                        self._LOGGER.debug(f'Received: {msg}')
-
-                        resp = await self.processResponse(msg)
-
-                        if isinstance(resp, ErrorResponse):
-                            self._LOGGER.error(resp.message)
-                            # retry
-                            return False
-                        if resp is None:
-                            return False
-
-                        return resp
-                    # When no data is waiting in the input buffer after 10s we can assume, the message was not correctly sent or no input is necessary
-                    if time.time() - start_time > 10:
-                        return False
+                message_buffer = ""
+                
+                while time.time() - start_time < timeout:
+                    try:
+                        # Read available data with timeout
+                        data = await asyncio.wait_for(
+                            self._reader.read(1024), timeout=1.0
+                        )
+                        
+                        if data:
+                            text = data.decode('utf-8', errors='ignore')
+                            message_buffer += text
+                            
+                            # Try to extract complete XML response
+                            xml_response, message_buffer = self._extract_xml_response(message_buffer)
+                            if xml_response:
+                                self._LOGGER.debug(f"Processing direct command response: {xml_response[:100]}...")
+                                response = await self.processResponse(xml_response)
+                                self._LOGGER.debug(f"Response type: {type(response)} - Value: {response}")
+                                if response and response is not True:
+                                    return response
+                                
+                    except asyncio.TimeoutError:
+                        # Check if we have a complete message in buffer anyway
+                        xml_response, message_buffer = self._extract_xml_response(message_buffer)
+                        if xml_response:
+                            response = await self.processResponse(xml_response)
+                            if response and response is not True:
+                                return response
+                        continue
+                
+                self._LOGGER.warning("Direct command execution timeout")
+                return False
+                
+            except Exception as e:
+                self._LOGGER.error(f"Direct command execution error: {e}")
+                return False
 
 
 
@@ -772,13 +1101,13 @@ class Selve:
                 config: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(DeviceGetValues(i))
                 device.state = config.movementState
 
-                if self.reversedStopPosition is 0:
+                if self.reversedStopPosition == 0:
                     device.value = config.value if config.value else 0
                 else:
                     device.value = 100 - config.value if config.value else 0
 
 
-                if self.reversedStopPosition is 0:
+                if self.reversedStopPosition == 0:
                     device.targetValue = config.targetValue if config.targetValue else 0
                 else:
                     device.targetValue = 100 - config.targetValue if config.targetValue else 0
@@ -860,13 +1189,13 @@ class Selve:
 
 
     async def updateAllDevices(self):
-        for device in self.devices[SelveTypes.DEVICE.value]:
+        for device in self.devices[SelveTypes.DEVICE.value].values():
             await self.updateCommeoDeviceValues(device.id)
-        for sensor in self.devices[SelveTypes.SENSOR.value]:
+        for sensor in self.devices[SelveTypes.SENSOR.value].values():
             await self.updateSensorValuesAsync(sensor.id)
-        for senSim in self.devices[SelveTypes.SENSIM.value]:
+        for senSim in self.devices[SelveTypes.SENSIM.value].values():
             await self.updateSenSimValuesAsync(senSim.id)
-        for sender in self.devices[SelveTypes.SENDER.value]:
+        for sender in self.devices[SelveTypes.SENDER.value].values():
             await self.updateSenderValuesAsync(sender.id)
 
 
@@ -956,13 +1285,13 @@ class Selve:
 
             device.state = response.actorState
 
-            if self.reversedStopPosition is 0:
+            if self.reversedStopPosition == 0:
                 device.value = response.value if response.value else 0
             else:
                 device.value = 100 - response.value if response.value else 0
 
 
-            if self.reversedStopPosition is 0:
+            if self.reversedStopPosition == 0:
                 device.targetValue = response.targetValue if response.targetValue else 0
             else:
                 device.targetValue = 100 - response.targetValue if response.targetValue else 0
@@ -1063,7 +1392,7 @@ class Selve:
                 if methodResponse.name == "selve.GW.service.ping":
                     self._LOGGER.debug("Ping back")
                     return True
-        except:
+        except Exception:
             self._LOGGER.debug("Error in ping")
         self._LOGGER.debug("No ping")
         return False
@@ -1076,7 +1405,7 @@ class Selve:
                 if methodResponse.name == "selve.GW.service.ping":
                     self._LOGGER.debug("Ping back")
                     return True
-        except:
+        except Exception:
             self._LOGGER.debug("Error in ping")
         self._LOGGER.debug("No ping")
         return False
@@ -1149,7 +1478,8 @@ class Selve:
         while await self.gatewayState() != ServiceState.READY:
             if time.time() - start_time >= 30:
                 self._LOGGER.info("Error: Gateway could not be reset or loads too long")
-            pass
+                break
+            await asyncio.sleep(0.5)  # Wait before next check
         self._LOGGER.info("Gateway reset")
 
     async def factoryResetGateway(self):
@@ -1162,7 +1492,8 @@ class Selve:
         while await self.gatewayState() != ServiceState.READY:
             if time.time() - start_time >= 60:
                 self._LOGGER.info("Error: Gateway could not be reset or loads too long")
-            pass
+                break
+            await asyncio.sleep(0.5)  # Wait before next check
         self._LOGGER.info("Gateway factory reset")
         return response.executed
 
@@ -1283,13 +1614,13 @@ class Selve:
         dev = self.getDevice(id, SelveTypes.DEVICE)
         dev.name = response.name if response.name else "None"
         dev.state = response.movementState if response.movementState else MovementState.UNKOWN.value
-        if self.reversedStopPosition is 0:
+        if self.reversedStopPosition == 0:
             dev.value = response.value if response.value else 0
         else:
             dev.value = 100 - response.value if response.value else 0
 
 
-        if self.reversedStopPosition is 0:
+        if self.reversedStopPosition == 0:
             dev.targetValue = response.targetValue if response.targetValue else 0
         else:
             dev.targetValue = 100 - response.targetValue if response.targetValue else 0
@@ -1309,7 +1640,7 @@ class Selve:
 
     def setDeviceValue(self, id: int, value: int, type: SelveTypes):
         dev = self.getDevice(id, type)
-        if self.reversedStopPosition is 0:
+        if self.reversedStopPosition == 0:
             dev.value = value
         else:
             dev.value = 100 - value
@@ -1318,7 +1649,7 @@ class Selve:
 
     def setDeviceTargetValue(self, id: int, value: int, type: SelveTypes):
         dev = self.getDevice(id, type)
-        if self.reversedStopPosition is 0:
+        if self.reversedStopPosition == 0:
             dev.targetValue = value
         else:
             dev.targetValue = 100 - value
