@@ -4,7 +4,6 @@ Integration tests for the Selve gateway initialization and connection handling.
 
 import pytest
 import asyncio
-import pytest_asyncio
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from selve import Selve
@@ -12,6 +11,7 @@ from selve.commands.service import ServicePing
 from selve.util.errors import PortError
 
 
+@pytest.mark.integration
 class TestSelveGatewayIntegration:
     """Test the initialization and connection handling of the Selve gateway."""
     

@@ -53,3 +53,16 @@ my-script = "my_package.module:function"
 write_to = "selve/_version.py"
 version_scheme = "post-release"
 local_scheme = "no-local-version"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = [
+    "tests",
+]
+markers = [
+    "asyncio: marks tests as async tests",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+asyncio_mode = "auto"
