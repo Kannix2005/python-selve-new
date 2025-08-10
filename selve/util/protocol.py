@@ -88,6 +88,7 @@ class ParameterType(Enum):
     INT = "int"
     STRING = "string"
     BASE64 = "base64"
+    BOOL = "bool"
 
 class ScanState(Enum):
     IDLE = 0
@@ -110,6 +111,7 @@ class ServiceState(Enum):
     UPDATE = 1
     STARTUP = 2
     READY = 3
+    NOT_READY = 4  # Hinzugefügt für Fehlerbehandlungstests
 
 class SensorState(Enum):
     INVALID = 0

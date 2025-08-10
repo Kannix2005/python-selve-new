@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+# Version handling
+try:
+    from ._version import version as __version__
+except ImportError:
+    # Fallback for development
+    try:
+        from setuptools_scm import get_version
+        __version__ = get_version(root='..', relative_to=__file__)
+    except:
+        __version__ = "unknown"
+
 import asyncio
 import queue
 import threading
@@ -200,7 +211,13 @@ class Selve:
 
 
         if self.loop is not None:
-            available_ports = await self.loop.run_in_executor(None, list_ports.comports)
+            # Use the current running loop to avoid "different loop" errors
+            try:
+                current_loop = asyncio.get_running_loop()
+                available_ports = await current_loop.run_in_executor(None, list_ports.comports)
+            except RuntimeError:
+                # No running loop, use the instance loop
+                available_ports = await self.loop.run_in_executor(None, list_ports.comports)
         else:
             available_ports = list_ports.comports()
         
@@ -237,7 +254,8 @@ class Selve:
                 self._port = p.device
                 return
             else:
-                self._serial.close()
+                if self._serial is not None:
+                    self._serial.close()
                 self._serial = None
         else:
             self._LOGGER.error("No gateway on comports found!")
@@ -269,7 +287,13 @@ class Selve:
                 self._LOGGER.error("(Selve Worker): " + "Unknown exception: " + str(e))
 
         if self.loop is not None:
-            available_ports = await self.loop.run_in_executor(None, list_ports.comports)
+            # Use the current running loop to avoid "different loop" errors
+            try:
+                current_loop = asyncio.get_running_loop()
+                available_ports = await current_loop.run_in_executor(None, list_ports.comports)
+            except RuntimeError:
+                # No running loop, use the instance loop
+                available_ports = await self.loop.run_in_executor(None, list_ports.comports)
         else:
             available_ports = list_ports.comports()
         
@@ -772,13 +796,13 @@ class Selve:
                 config: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(DeviceGetValues(i))
                 device.state = config.movementState
 
-                if self.reversedStopPosition is 0:
+                if self.reversedStopPosition == 0:
                     device.value = config.value if config.value else 0
                 else:
                     device.value = 100 - config.value if config.value else 0
 
 
-                if self.reversedStopPosition is 0:
+                if self.reversedStopPosition == 0:
                     device.targetValue = config.targetValue if config.targetValue else 0
                 else:
                     device.targetValue = 100 - config.targetValue if config.targetValue else 0
@@ -956,13 +980,13 @@ class Selve:
 
             device.state = response.actorState
 
-            if self.reversedStopPosition is 0:
+            if self.reversedStopPosition == 0:
                 device.value = response.value if response.value else 0
             else:
                 device.value = 100 - response.value if response.value else 0
 
 
-            if self.reversedStopPosition is 0:
+            if self.reversedStopPosition == 0:
                 device.targetValue = response.targetValue if response.targetValue else 0
             else:
                 device.targetValue = 100 - response.targetValue if response.targetValue else 0
@@ -1283,13 +1307,13 @@ class Selve:
         dev = self.getDevice(id, SelveTypes.DEVICE)
         dev.name = response.name if response.name else "None"
         dev.state = response.movementState if response.movementState else MovementState.UNKOWN.value
-        if self.reversedStopPosition is 0:
+        if self.reversedStopPosition == 0:
             dev.value = response.value if response.value else 0
         else:
             dev.value = 100 - response.value if response.value else 0
 
 
-        if self.reversedStopPosition is 0:
+        if self.reversedStopPosition == 0:
             dev.targetValue = response.targetValue if response.targetValue else 0
         else:
             dev.targetValue = 100 - response.targetValue if response.targetValue else 0
@@ -1309,7 +1333,7 @@ class Selve:
 
     def setDeviceValue(self, id: int, value: int, type: SelveTypes):
         dev = self.getDevice(id, type)
-        if self.reversedStopPosition is 0:
+        if self.reversedStopPosition == 0:
             dev.value = value
         else:
             dev.value = 100 - value
@@ -1318,7 +1342,7 @@ class Selve:
 
     def setDeviceTargetValue(self, id: int, value: int, type: SelveTypes):
         dev = self.getDevice(id, type)
-        if self.reversedStopPosition is 0:
+        if self.reversedStopPosition == 0:
             dev.targetValue = value
         else:
             dev.targetValue = 100 - value

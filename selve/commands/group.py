@@ -28,7 +28,7 @@ class GroupReadResponse(MethodResponse):
         super().__init__(name, parameters)
         self.id = int(parameters[1][1])
         self.mask = parameters[2][1]
-        self.name = str(parameters[0][1])
+        self.groupName = str(parameters[0][1])  # Änderung von name zu groupName, um Konflikte zu vermeiden
 
 
 class GroupWriteResponse(MethodResponse):
