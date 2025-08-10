@@ -13,6 +13,14 @@ class ReadTimeoutError(Exception):
     pass
 
 
+# Klasse für Fehlerantworten vom Gateway
+class ErrorResponse:
+    def __init__(self, error_type, message):
+        self.error_type = error_type
+        self.message = message
+        self.name = "selve.GW.error"
+
+
 ErrorCodes = {
     1: "Unknown Error",
     2: "Method not supported",
