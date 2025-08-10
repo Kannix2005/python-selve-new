@@ -48,3 +48,8 @@ my-script = "my_package.module:function"
 
 # ... other project metadata fields as listed in:
 #     https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
+
+[tool.setuptools_scm]
+write_to = "selve/_version.py"
+version_scheme = "post-release"
+local_scheme = "no-local-version"
