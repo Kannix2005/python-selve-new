@@ -9,7 +9,7 @@ authors = [
 ]
 description = "Python library for interfacing with selve devices using the USB-RF controller. Written completely new."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 keywords = ["selve", "blind", "awning", "shutter", "usb", "rf"]
 license = {text = "GNU General Public License v2 or later (GPLv2+)"}
 classifiers = [
@@ -23,11 +23,6 @@ classifiers = [
     # Specify the Python versions you support here. In particular, ensure
     # that you indicate whether you support Python 2, Python 3 or both.
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.4",
-    "Programming Language :: Python :: 3.5",
-    "Programming Language :: Python :: 3.6",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -66,3 +61,4 @@ markers = [
     "unit: marks tests as unit tests",
 ]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
