@@ -1,0 +1,60 @@
+name: Run Tests
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for setuptools_scm
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install setuptools-scm
+        pip install -e .
+        pip install pytest pytest-asyncio pytest-cov
+    
+    - name: Run import tests
+      run: |
+        pytest tests/test_import.py -v
+    
+    - name: Run unit tests
+      run: |
+        pytest tests/unit/ -v --ignore=tests/unit/test_gateway_error_handling.py
+    
+    - name: Run integration tests (without hardware)
+      run: |
+        pytest tests/integration/ -v -m "not hardware"
+    
+    - name: Generate coverage report (Python 3.11 only)
+      if: matrix.python-version == '3.11'
+      run: |
+        pytest tests/unit/ --cov=selve --cov-report=term-missing --ignore=tests/unit/test_gateway_error_handling.py
+    
+    - name: Upload coverage artifact
+      uses: actions/upload-artifact@v4
+      if: matrix.python-version == '3.11'
+      with:
+        name: coverage-report
+        path: .coverage
+        retention-days: 7
