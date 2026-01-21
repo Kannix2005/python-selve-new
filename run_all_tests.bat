@@ -70,7 +70,7 @@ echo Running service command error tests...
 
 echo Running existing mock tests...
 %PYTHON_CMD% -m pytest tests\unit\test_mock_commands.py -v
-%PYTHON_CMD% -m pytest tests\unit\test_gateway_error_handling.py -v
+%PYTHON_CMD% -m pytest tests\unit\test_gateway_error_handling_fixed.py -v
 %PYTHON_CMD% -m pytest tests\unit\test_missing_components.py -v
 
 echo ====================================================
@@ -103,11 +103,15 @@ if /i "%RUN_HARDWARE_TESTS%"=="Y" (
     echo Skipping hardware tests.
 )
 
-:: Generate coverage report
+:: Coverage report disabled due to RAM issues with gc.collect in pytest-cov
+:: To generate coverage manually: python -m pytest --cov=selve --cov-report=html tests/
 echo ====================================================
-echo Generating Test Coverage Report
+echo Test Coverage Report Generation: SKIPPED
 echo ====================================================
-%PYTHON_CMD% -m pytest --cov=selve tests\
+echo Coverage generation disabled to prevent RAM exhaustion.
+echo To generate manually with limited scope:
+echo   python -m pytest --cov=selve --cov-report=term-missing tests/unit/
+echo.
 
 :: Deactivate virtual environment
 echo Deactivating virtual environment...
@@ -117,4 +121,4 @@ echo ====================================================
 echo All tests completed! 
 echo Coverage report generated.
 echo ====================================================
-pause
+

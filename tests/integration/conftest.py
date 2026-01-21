@@ -53,7 +53,7 @@ def mock_serial():
 
 
 @pytest.fixture
-def mock_selve_instance(mock_serial, logger):
+async def mock_selve_instance(mock_serial, logger):
     """Provide a mocked Selve instance for testing."""
     # Use the current running loop instead of event_loop fixture
     current_loop = None
@@ -95,6 +95,22 @@ def mock_selve_instance(mock_serial, logger):
         selve_instance.moveDeviceStop = mock_move_device_stop
     
     yield selve_instance
+    
+    # Cleanup: stop any running tasks
+    await selve_instance.stopWorker()
+    # Cancel pending tasks
+    if selve_instance._tx_task and not selve_instance._tx_task.done():
+        selve_instance._tx_task.cancel()
+        try:
+            await selve_instance._tx_task
+        except asyncio.CancelledError:
+            pass
+    if selve_instance._dispatch_task and not selve_instance._dispatch_task.done():
+        selve_instance._dispatch_task.cancel()
+        try:
+            await selve_instance._dispatch_task
+        except asyncio.CancelledError:
+            pass
 
 
 @pytest.fixture

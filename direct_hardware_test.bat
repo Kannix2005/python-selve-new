@@ -36,26 +36,14 @@ echo Installing required packages...
 %PYTHON_CMD% -m pip install --upgrade pip
 %PYTHON_CMD% -m pip install -e .
 
-:: Ask for test mode
+:: Port selection (non-interactive). Set SELVE_PORT or COM_PORT to skip auto-discovery.
 echo.
-echo Choose test mode:
-echo 1. Auto-discover port (recommended)
-echo 2. Specify COM port
-echo.
-set /p TEST_MODE=Enter choice (1 or 2): 
-
-if "%TEST_MODE%"=="1" (
-    echo.
-    echo Running direct hardware test with auto-discovery...
-    %PYTHON_CMD% direct_hardware_test.py --discover --verbose
-) else if "%TEST_MODE%"=="2" (
-    echo.
-    set /p COM_PORT=Enter COM port number (e.g., '3' for COM3): 
-    echo.
-    echo Running direct hardware test with COM%COM_PORT%...
-    %PYTHON_CMD% direct_hardware_test.py --port COM%COM_PORT% --verbose
+if defined SELVE_PORT set "COM_PORT=%SELVE_PORT%"
+if defined COM_PORT (
+    echo Running direct hardware test with %COM_PORT%...
+    %PYTHON_CMD% direct_hardware_test.py --port %COM_PORT% --verbose
 ) else (
-    echo Invalid choice. Using auto-discovery...
+    echo Running direct hardware test with auto-discovery...
     %PYTHON_CMD% direct_hardware_test.py --discover --verbose
 )
 
@@ -67,4 +55,3 @@ call venv\Scripts\deactivate
 echo.
 echo Test completed.
 echo.
-pause
