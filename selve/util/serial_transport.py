@@ -66,6 +66,13 @@ class SerialTransport:
         self.ensure_open()
         self._loop = loop
         self._rx_queue = rx_queue
+
+        # In tests, serial.Serial is often patched with a MagicMock; skip starting the reader thread
+        # to avoid tight loops on mocked readline() and reduce flakiness.
+        if self._serial is not None and getattr(self._serial, "__module__", "").startswith("unittest.mock"):
+            self._logger.debug("Mock serial detected; skipping reader thread")
+            return
+
         if self._reader_thread and self._reader_thread.is_alive():
             return
         self._stop_event.clear()

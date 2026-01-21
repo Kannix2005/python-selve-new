@@ -352,26 +352,31 @@ class TestSelveWorkerThread:
     
     @pytest.mark.asyncio
     async def test_start_worker(self, selve_instance):
-        """Test starting the worker thread."""
+        """Test starting the worker thread without real serial port."""
         with patch.object(selve_instance, '_worker') as mock_worker:
             mock_worker.return_value = True
-            
+            # Avoid real serial port: provide fake transport with start_reader stub
+            fake_transport = MagicMock()
+            selve_instance._transport = fake_transport
             await selve_instance.startWorker()
-            
+            fake_transport.start_reader.assert_called()
             assert selve_instance.workerTask is not None
 
     @pytest.mark.asyncio
     async def test_stop_worker(self, selve_instance):
-        """Test stopping the worker thread."""
+        """Test stopping the worker thread without real serial port."""
         # First start a worker
         with patch.object(selve_instance, '_worker') as mock_worker:
             mock_worker.return_value = True
+            fake_transport = MagicMock()
+            selve_instance._transport = fake_transport
             await selve_instance.startWorker()
             
             # Now stop it
             await selve_instance.stopWorker()
             
             assert selve_instance._stopThread.is_set()
+            fake_transport.stop_reader.assert_called()
 
     def test_pause_worker_internal(self, minimal_selve):
         """Test accessing internal pause worker event."""
