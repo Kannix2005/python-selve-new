@@ -117,69 +117,44 @@ class TestSelveCheckPort:
     """Test the check_port method."""
     
     @pytest.mark.asyncio
-    @patch('selve.serial.Serial')
-    async def test_check_port_valid_port(self, mock_serial, minimal_selve):
-        """Test check_port with a valid port."""
-        mock_serial_instance = Mock()
-        mock_serial.return_value = mock_serial_instance
-        
-        with patch.object(minimal_selve, 'pingGateway', return_value=True):
+    async def test_check_port_valid_port(self, minimal_selve):
+        """Test check_port with a valid port using probe stub."""
+        with patch.object(minimal_selve, '_probe_port', AsyncMock(return_value=True)) as mock_probe:
             result = await minimal_selve.check_port("COM3")
-            
         assert result is True
-        mock_serial.assert_called_once()
-        mock_serial_instance.close.assert_called_once()
+        mock_probe.assert_awaited_once_with("COM3", fromConfigFlow=True)
 
     @pytest.mark.asyncio
-    @patch('selve.serial.Serial')
-    async def test_check_port_ping_fails(self, mock_serial, minimal_selve):
-        """Test check_port when ping fails."""
-        mock_serial_instance = Mock()
-        mock_serial.return_value = mock_serial_instance
-        
-        with patch.object(minimal_selve, 'pingGateway', return_value=False):
+    async def test_check_port_ping_fails(self, minimal_selve):
+        """Test check_port when probe fails."""
+        with patch.object(minimal_selve, '_probe_port', AsyncMock(return_value=False)) as mock_probe:
             result = await minimal_selve.check_port("COM3")
-            
         assert result is False
+        mock_probe.assert_awaited_once_with("COM3", fromConfigFlow=True)
 
     @pytest.mark.asyncio
-    @patch('selve.serial.Serial')
-    async def test_check_port_serial_exception(self, mock_serial, minimal_selve):
-        """Test check_port with SerialException."""
-        mock_serial.side_effect = serial.SerialException("Port not found")
-        
-        with patch.object(minimal_selve, '_LOGGER') as mock_logger:
-            minimal_selve._LOGGER = mock_logger
+    async def test_check_port_serial_exception(self, minimal_selve):
+        """Test check_port when probe handles SerialException and returns False."""
+        with patch.object(minimal_selve, '_probe_port', AsyncMock(return_value=False)) as mock_probe:
             result = await minimal_selve.check_port("INVALID_PORT")
-            
         assert result is False
-        mock_logger.debug.assert_called()
+        mock_probe.assert_awaited_once_with("INVALID_PORT", fromConfigFlow=True)
 
     @pytest.mark.asyncio
-    @patch('selve.serial.Serial')
-    async def test_check_port_io_error(self, mock_serial, minimal_selve):
-        """Test check_port with IOError."""
-        mock_serial.side_effect = IOError("IO Error")
-        
-        with patch.object(minimal_selve, '_LOGGER') as mock_logger:
-            minimal_selve._LOGGER = mock_logger
+    async def test_check_port_io_error(self, minimal_selve):
+        """Test check_port when probe handles IOError and returns False."""
+        with patch.object(minimal_selve, '_probe_port', AsyncMock(return_value=False)) as mock_probe:
             result = await minimal_selve.check_port("BAD_PORT")
-            
         assert result is False
-        mock_logger.debug.assert_called()
+        mock_probe.assert_awaited_once_with("BAD_PORT", fromConfigFlow=True)
 
     @pytest.mark.asyncio
-    @patch('selve.serial.Serial')
-    async def test_check_port_general_exception(self, mock_serial, minimal_selve):
-        """Test check_port with general Exception."""
-        mock_serial.side_effect = Exception("General error")
-        
-        with patch.object(minimal_selve, '_LOGGER') as mock_logger:
-            minimal_selve._LOGGER = mock_logger
+    async def test_check_port_general_exception(self, minimal_selve):
+        """Test check_port when probe handles general exception and returns False."""
+        with patch.object(minimal_selve, '_probe_port', AsyncMock(return_value=False)) as mock_probe:
             result = await minimal_selve.check_port("ERROR_PORT")
-            
         assert result is False
-        mock_logger.error.assert_called()
+        mock_probe.assert_awaited_once_with("ERROR_PORT", fromConfigFlow=True)
 
     @pytest.mark.asyncio
     async def test_check_port_none_port(self, minimal_selve):
