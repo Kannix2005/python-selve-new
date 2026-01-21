@@ -32,7 +32,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install setuptools-scm
         pip install -e .
-        pip install pytest pytest-asyncio pytest-cov
+        pip install pytest pytest-asyncio pytest-cov pytest-timeout
     
     - name: Set PYTHONPATH
       run: |
@@ -40,15 +40,15 @@ jobs:
     
     - name: Run import tests
       run: |
-        pytest tests/test_import.py -v
+        pytest tests/test_import.py -v --timeout=10
     
     - name: Run unit tests
       run: |
-        pytest tests/unit/ -v --ignore=tests/unit/test_gateway_error_handling.py --ignore=tests/unit/test_port_discovery.py
+        pytest tests/unit/ -v --timeout=30 --ignore=tests/unit/test_gateway_error_handling.py
     
     - name: Run integration tests (without hardware)
       run: |
-        pytest tests/integration/ -v -m "not hardware"
+        pytest tests/integration/ -v -m "not hardware" --timeout=30
     
     - name: Generate coverage report (Python 3.11 only)
       if: matrix.python-version == '3.11'
