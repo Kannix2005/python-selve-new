@@ -34,6 +34,10 @@ jobs:
         pip install -e .
         pip install pytest pytest-asyncio pytest-cov
     
+    - name: Set PYTHONPATH
+      run: |
+        echo "PYTHONPATH=${{ github.workspace }}" >> $GITHUB_ENV
+    
     - name: Run import tests
       run: |
         pytest tests/test_import.py -v
