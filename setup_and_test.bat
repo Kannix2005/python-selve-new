@@ -141,5 +141,4 @@ call venv\Scripts\deactivate
 echo.
 echo Test suite completed successfully!
 echo.
-pause
 exit /b 0

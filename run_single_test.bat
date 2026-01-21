@@ -78,4 +78,3 @@ call venv\Scripts\deactivate
 echo.
 echo Test completed.
 echo.
-pause
