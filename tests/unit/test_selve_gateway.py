@@ -98,6 +98,7 @@ async def test_ping_gateway_from_worker_failure_wrong_name(selve_instance):
             return True
         else:
             selve_instance._LOGGER.debug("No ping")
+            return False
     
     selve_instance.pingGatewayFromWorker = mock_ping_gateway_from_worker
     

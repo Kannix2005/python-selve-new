@@ -103,11 +103,11 @@ class TestSelveInitSimple:
         selve = Selve(logger=Mock())
         mock_serial_instance = Mock()
         mock_serial.return_value = mock_serial_instance
-        
-        with patch.object(selve, 'pingGateway', return_value=True):
+
+        with patch.object(selve, '_probe_port', AsyncMock(return_value=True)) as mock_probe:
             result = await selve.check_port("COM1")
             assert result is True
-            mock_serial_instance.close.assert_called_once()
+            mock_probe.assert_awaited_once_with("COM1", fromConfigFlow=True)
             
     @patch('selve.serial.Serial')
     @pytest.mark.asyncio

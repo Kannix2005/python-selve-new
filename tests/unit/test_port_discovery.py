@@ -185,9 +185,12 @@ async def test_auto_discovery(logger, event_loop, mock_serial, mock_list_ports):
     selve_instance = selve.Selve(port=None, discover=False, develop=True,
                                logger=logger, loop=event_loop)
     
-    # Mock probe_port to succeed only for COM2
+    # Mock probe_port to succeed only for COM2 and set _port like real implementation
     async def probe_side_effect(port, fromConfigFlow=False):
-        return port == "COM2"
+        if port == "COM2":
+            selve_instance._port = port
+            return True
+        return False
     
     with patch.object(selve_instance, '_probe_port', AsyncMock(side_effect=probe_side_effect)) as mock_probe:
         with patch.object(selve_instance, 'discover', new_callable=AsyncMock) as mock_discover:
