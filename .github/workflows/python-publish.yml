@@ -38,7 +38,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install setuptools-scm
         pip install -e .
-        pip install pytest pytest-asyncio coverage
+        pip install pytest pytest-asyncio coverage pytest-timeout
     
     - name: Set PYTHONPATH
       run: |
@@ -46,8 +46,8 @@ jobs:
     
     - name: Run tests without coverage
       run: |
-        pytest tests/test_import.py -v
-        pytest tests/unit/ -v --ignore=tests/unit/test_gateway_error_handling.py --ignore=tests/unit/test_port_discovery.py
+        pytest tests/test_import.py -v --timeout=10
+        pytest tests/unit/ -v --timeout=30 --ignore=tests/unit/test_gateway_error_handling.py
     
     - name: Generate coverage report (Python 3.11 only)
       if: matrix.python-version == '3.11'
