@@ -73,8 +73,12 @@ class TestSelveIntegration(unittest.TestCase):
         ping_response = MagicMock()
         ping_response.name = "selve.GW.service.ping"
         
-        # Mock executeCommandSyncWithResponse to return successful ping
-        self.selve.executeCommandSyncWithResponse = AsyncMock(return_value=ping_response)
+        # Mock a successful version response for _probe_port
+        version_response = MagicMock()
+        version_response.name = "selve.GW.service.getVersion"
+        
+        # Mock executeCommandSyncWithResponse to return successful ping and version
+        self.selve.executeCommandSyncWithResponse = AsyncMock(side_effect=[ping_response, version_response])
         self.selve.executeCommandSyncWithResponsefromWorker = AsyncMock(return_value=ping_response)
         
         # Test setup and ping
