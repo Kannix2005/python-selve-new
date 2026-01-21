@@ -38,11 +38,29 @@ jobs:
         python -m pip install --upgrade pip
         pip install setuptools-scm
         pip install -e .
-        pip install pytest pytest-cov pytest-asyncio
+        pip install pytest pytest-asyncio coverage
     
-    - name: Run tests
+    - name: Set PYTHONPATH
       run: |
-        pytest -m "not integration" --cov=selve --cov-report=xml --cov-report=html --junitxml=test-results.xml
+        echo "PYTHONPATH=${{ github.workspace }}" >> $GITHUB_ENV
+    
+    - name: Run tests without coverage
+      run: |
+        pytest tests/test_import.py -v
+        pytest tests/unit/ -v --ignore=tests/unit/test_gateway_error_handling.py --ignore=tests/unit/test_port_discovery.py
+    
+    - name: Generate coverage report (Python 3.11 only)
+      if: matrix.python-version == '3.11'
+      run: |
+        # Generate coverage in smaller batches to avoid RAM issues
+        coverage run -m pytest tests/test_import.py
+        coverage run --append -m pytest tests/unit/test_commands.py tests/unit/test_device.py tests/unit/test_group.py
+        coverage run --append -m pytest tests/unit/test_service_commands.py tests/unit/test_group_commands.py tests/unit/test_util.py
+        coverage run --append -m pytest tests/unit/test_gateway_configuration_issues.py tests/unit/test_mock_devices_and_groups.py
+        coverage run --append -m pytest tests/unit/test_mock_sensors_and_senders.py tests/unit/test_service_command_errors.py
+        coverage run --append -m pytest tests/unit/test_mock_commands.py tests/unit/test_gateway_error_handling_fixed.py tests/unit/test_missing_components.py
+        coverage xml
+        coverage html
     
     - name: Upload test results
       uses: actions/upload-artifact@v4

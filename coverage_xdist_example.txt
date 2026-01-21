@@ -1,0 +1,12 @@
+# Alternative coverage generation using pytest-xdist
+# This distributes tests across multiple processes, reducing memory per process
+
+# Install: pip install pytest-xdist coverage
+
+# Run with limited workers to control memory:
+pytest tests/unit/ --cov=selve --cov-report=html --cov-report=term-missing -n 2
+
+# Options:
+# -n 2         : Use 2 worker processes (adjust based on available RAM)
+# -n auto      : Use all available CPUs (may cause RAM issues)
+# --maxfail=5  : Stop after 5 failures to save resources
