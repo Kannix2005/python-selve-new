@@ -26,11 +26,16 @@ class TestSelveGatewayIntegration:
         selve = Selve(port="COM3", discover=False, develop=True, 
                      logger=logger, loop=asyncio.get_running_loop())
         
-        # Mock the executeCommandSyncWithResponse to return ping response
+        # Mock the executeCommandSyncWithResponse to return ping and version responses
         with patch.object(selve, 'executeCommandSyncWithResponse') as mock_exec:
-            mock_response = MagicMock()
-            mock_response.name = "selve.GW.service.ping"
-            mock_exec.return_value = mock_response
+            mock_ping_response = MagicMock()
+            mock_ping_response.name = "selve.GW.service.ping"
+            
+            mock_version_response = MagicMock()
+            mock_version_response.name = "selve.GW.service.getVersion"
+            
+            # Return ping first, then version
+            mock_exec.side_effect = [mock_ping_response, mock_version_response]
             
             # Call setup
             await selve.setup(discover=False, fromConfigFlow=True)
@@ -86,8 +91,9 @@ class TestSelveGatewayIntegration:
                     mock_serial_instance.is_open = True
                     mock_serial_class.return_value = mock_serial_instance
                     
-                    # Mock pingGatewayFromWorker to return True
-                    mock_selve_instance.pingGatewayFromWorker = AsyncMock(return_value=True)
+                    # Mock _probe_port to return True immediately
+                    mock_selve_instance._probe_port = AsyncMock(return_value=True)
+                    mock_selve_instance._port = "COM3"
                     
                     # Call recover directly
                     await mock_selve_instance.recover()
