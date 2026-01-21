@@ -50,4 +50,3 @@ call venv\Scripts\deactivate
 echo.
 echo Hardware tests completed.
 echo.
-pause

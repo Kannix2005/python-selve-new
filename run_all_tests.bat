@@ -117,4 +117,4 @@ echo ====================================================
 echo All tests completed! 
 echo Coverage report generated.
 echo ====================================================
-pause
+

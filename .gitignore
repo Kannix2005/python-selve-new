@@ -127,3 +127,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+selve/_version.py
+.vscode/settings.json
+pyrightconfig.json

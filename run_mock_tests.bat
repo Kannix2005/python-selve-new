@@ -40,7 +40,7 @@ python -m pytest tests\unit\test_mock_commands.py -v
 
 echo.
 echo Running Gateway Error Handling Tests...
-python -m pytest tests\unit\test_gateway_error_handling.py -v
+python -m pytest tests\unit\test_gateway_error_handling_fixed.py -v
 
 echo.
 echo Running Missing Components Tests...
@@ -52,4 +52,3 @@ echo All mock tests completed.
 :: Deactivate virtual environment
 call venv\Scripts\deactivate.bat
 
-pause

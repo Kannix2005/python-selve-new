@@ -91,4 +91,3 @@ call venv\Scripts\deactivate
 echo.
 echo Tests completed.
 echo.
-pause
