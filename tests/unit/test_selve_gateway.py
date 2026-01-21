@@ -58,6 +58,7 @@ async def test_ping_gateway_from_worker_success(selve_instance):
         else:
             selve_instance._LOGGER.debug("No ping")
             return False
+            return False
     
     selve_instance.pingGatewayFromWorker = mock_ping_gateway_from_worker
     

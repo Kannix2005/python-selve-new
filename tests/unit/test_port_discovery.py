@@ -102,14 +102,11 @@ async def test_check_port_valid(logger, event_loop, mock_serial, mock_list_ports
     selve_instance = selve.Selve(port=None, discover=False, develop=True,
                                logger=logger, loop=event_loop)
     
-    # Mock the pingGateway method to return True for valid port
-    with patch.object(selve_instance, 'pingGateway', new_callable=AsyncMock) as mock_ping:
-        mock_ping.return_value = True
-        
-        # Test check_port
+    # Mock probe to succeed
+    with patch.object(selve_instance, '_probe_port', AsyncMock(return_value=True)) as mock_probe:
         result = await selve_instance.check_port("COM1")
         assert result is True, "Expected port to be valid"
-        mock_ping.assert_called_once_with(fromConfigFlow=True)
+        mock_probe.assert_awaited_once_with("COM1", fromConfigFlow=True)
 
 
 @pytest.mark.asyncio
@@ -123,12 +120,11 @@ async def test_check_port_invalid(logger, event_loop, mock_serial, mock_list_por
     selve_instance = selve.Selve(port="COM1", discover=False, develop=True,
                                logger=logger, loop=event_loop)
     
-    # Mock the ping method to return False (no proper gateway response)
-    selve_instance.pingGatewayFromWorker = AsyncMock(return_value=False)
-    
-    # Test check_port
-    result = await selve_instance.check_port("COM1")
-    assert result is False, "Expected port to be invalid"
+    # Mock probe to fail
+    with patch.object(selve_instance, '_probe_port', AsyncMock(return_value=False)) as mock_probe:
+        result = await selve_instance.check_port("COM1")
+        assert result is False, "Expected port to be invalid"
+        mock_probe.assert_awaited_once_with("COM1", fromConfigFlow=True)
 
 
 @pytest.mark.asyncio
@@ -141,9 +137,11 @@ async def test_check_port_serial_exception(logger, event_loop, mock_serial, mock
     selve_instance = selve.Selve(port=None, discover=False, develop=True,
                                logger=logger, loop=event_loop)
     
-    # Test check_port
-    result = await selve_instance.check_port("COM1")
-    assert result is False, "Expected port to be invalid due to SerialException"
+    # Test check_port (probe handles exception internally and returns False)
+    with patch.object(selve_instance, '_probe_port', AsyncMock(return_value=False)) as mock_probe:
+        result = await selve_instance.check_port("COM1")
+        assert result is False, "Expected port to be invalid due to SerialException"
+        mock_probe.assert_awaited_once_with("COM1", fromConfigFlow=True)
 
 
 @pytest.mark.asyncio
@@ -187,27 +185,13 @@ async def test_auto_discovery(logger, event_loop, mock_serial, mock_list_ports):
     selve_instance = selve.Selve(port=None, discover=False, develop=True,
                                logger=logger, loop=event_loop)
     
-    # Debug initial state
-    logger.debug(f"Initial port: {selve_instance._port}")
+    # Mock probe_port to succeed only for COM2
+    async def probe_side_effect(port, fromConfigFlow=False):
+        return port == "COM2"
     
-    # Mock pingGateway to succeed only for COM2
-    ping_call_count = [0]
-    def ping_side_effect(*args, **kwargs):
-        ping_call_count[0] += 1
-        logger.debug(f"Ping call #{ping_call_count[0]}, args: {args}, kwargs: {kwargs}")
-        # Check if we have a valid serial connection
-        if hasattr(selve_instance, '_serial') and selve_instance._serial and hasattr(selve_instance._serial, 'port'):
-            port_name = selve_instance._serial.port
-            logger.debug(f"Ping for port: {port_name}")
-            return port_name == "COM2"  # Only succeed for COM2
-        logger.debug("Ping called but no valid serial connection")
-        return False
-        
-    # Mock additional methods to avoid real hardware interactions
-    with patch.object(selve_instance, 'pingGateway', new_callable=AsyncMock) as mock_ping:
+    with patch.object(selve_instance, '_probe_port', AsyncMock(side_effect=probe_side_effect)) as mock_probe:
         with patch.object(selve_instance, 'discover', new_callable=AsyncMock) as mock_discover:
             with patch.object(selve_instance, 'startWorker', new_callable=AsyncMock) as mock_start_worker:
-                mock_ping.side_effect = ping_side_effect
                 mock_discover.return_value = None
                 mock_start_worker.return_value = None
                 
@@ -215,3 +199,6 @@ async def test_auto_discovery(logger, event_loop, mock_serial, mock_list_ports):
                 await selve_instance.setup(discover=True)
                 logger.debug(f"Final port: {selve_instance._port}")
                 assert selve_instance._port == "COM2", "Expected to discover COM2 as valid port"
+                # Ensure both ports were probed
+                mock_probe.assert_any_await("COM1", fromConfigFlow=False)
+                mock_probe.assert_any_await("COM2", fromConfigFlow=False)
