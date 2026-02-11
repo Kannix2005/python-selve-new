@@ -203,8 +203,11 @@ class CommeoParamCommand(Enum):
     GETFORWARD = "param.getForward"
     SETEVENT = "param.setEvent"
     GETEVENT = "param.getEvent"
+    SETDUTY = "param.setDuty"
     GETDUTY = "param.getDuty"
+    SETRF = "param.setRF"
     GETRF = "param.getRF"
+    GETTEMPERATURE = "param.getTemperature"
 
 class CommeoDeviceCommand(Enum):
     SCANSTART = "device.scanStart"
@@ -290,6 +293,11 @@ class IveoCommand(Enum):
     RESULT = "iveo.commandResult"
 
 
+class CommeoFirmwareCommand(Enum):
+    UPDATE = "firmware.update"
+    GETVERSION = "firmware.getVersion"
+
+
 class CommandType(Enum):
     def __getattr__(self, item):
         if item != '_value_':
@@ -305,6 +313,7 @@ class CommandType(Enum):
     COMMAND = CommeoCommandCommand
     EVENT = CommeoEventCommand
     IVEO = IveoCommand
+    FIRMWARE = CommeoFirmwareCommand
 
 ### Responses
 

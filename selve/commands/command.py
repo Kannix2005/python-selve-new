@@ -109,6 +109,10 @@ class CommandAutoOffGroup(CommeoCommand):
         super().__init__(id, DriveCommandCommeo.AUTOOFF, type, param, True)
 
 
+class CommandResult(GatewayCommand):
+    def __init__(self):
+        super().__init__(CommeoCommandCommand.RESULT)
+
 
 class CommandGroupMan(GatewayCommand):
     def __init__(self, command, type: DeviceCommandType, ids: dict, param: int = 0):

@@ -36,6 +36,7 @@ from selve.commands.event import *
 from selve.commands.senSim import *
 from selve.commands.sensor import *
 from selve.commands.sender import *
+from selve.commands.firmware import *
 from selve.device import SelveDevice
 from selve.group import SelveGroup
 from selve.iveo import IveoDevice
@@ -571,10 +572,16 @@ class Selve:
             return ParamSetEventResponse(methodName, flat_params_list)
         if methodName == "selve.GW." + str(CommeoParamCommand.GETEVENT.value):
             return ParamGetEventResponse(methodName, flat_params_list)
+        if methodName == "selve.GW." + str(CommeoParamCommand.SETDUTY.value):
+            return ParamSetDutyResponse(methodName, flat_params_list)
         if methodName == "selve.GW." + str(CommeoParamCommand.GETDUTY.value):
             return ParamGetDutyResponse(methodName, flat_params_list)
+        if methodName == "selve.GW." + str(CommeoParamCommand.SETRF.value):
+            return ParamSetRfResponse(methodName, flat_params_list)
         if methodName == "selve.GW." + str(CommeoParamCommand.GETRF.value):
             return ParamGetRfResponse(methodName, flat_params_list)
+        if methodName == "selve.GW." + str(CommeoParamCommand.GETTEMPERATURE.value):
+            return ParamGetTemperatureResponse(methodName, flat_params_list)
 
         ##Device
         if methodName == "selve.GW." + str(CommeoDeviceCommand.SCANSTART.value):
@@ -714,6 +721,12 @@ class Selve:
         if methodName == "selve.GW." + str(IveoCommand.RESULT.value):
             return IveoResultResponse(methodName, flat_params_list)
 
+        ##Firmware
+        if methodName == "selve.GW." + str(CommeoFirmwareCommand.GETVERSION.value):
+            return FirmwareGetVersionResponse(methodName, flat_params_list)
+        if methodName == "selve.GW." + str(CommeoFirmwareCommand.UPDATE.value):
+            return FirmwareUpdateResponse(methodName, flat_params_list)
+
         ##Events
         if methodName == "selve.GW." + str(CommeoEventCommand.DEVICE.value):
             return CommeoDeviceEventResponse(methodName, flat_params_list)
@@ -823,7 +836,7 @@ class Selve:
                 config: GroupReadResponse = await self.executeCommandSyncWithResponse(GroupRead(i))
                 device = SelveGroup(i)
                 device.device_type = SelveTypes.GROUP
-                device.name = config.name
+                device.name = config.groupName
                 device.mask = config.mask
                 self.addOrUpdateDevice(device, SelveTypes.GROUP)
 
@@ -1234,6 +1247,21 @@ class Selve:
         response: ParamGetRfResponse = await self.executeCommandSyncWithResponse(command)
         return response
 
+    async def setDuty(self, mode: int):
+        command = ParamSetDuty(mode)
+        response: ParamSetDutyResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def setRF(self, netAddress: int, resetCount: int):
+        command = ParamSetRf(netAddress, resetCount)
+        response: ParamSetRfResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def getTemperature(self):
+        command = ParamGetTemperature()
+        response: ParamGetTemperatureResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
 
 
     ##Device functions
@@ -1297,6 +1325,22 @@ class Selve:
         command = DeviceWriteManual(id, address, name, config)
         response: DeviceWriteManualResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
+
+    async def deviceSavePos1(self, device: SelveDevice, type=DeviceCommandType.MANUAL):
+        """Save current position as Position 1 for the device."""
+        await self.executeCommand(CommandSavePos1(device.id, type))
+        await self.updateCommeoDeviceValuesAsync(device.id)
+
+    async def deviceSavePos2(self, device: SelveDevice, type=DeviceCommandType.MANUAL):
+        """Save current position as Position 2 for the device."""
+        await self.executeCommand(CommandSavePos2(device.id, type))
+        await self.updateCommeoDeviceValuesAsync(device.id)
+
+    async def commandResult(self):
+        """Query the result of the last command execution."""
+        command = CommandResult()
+        response: CommandResultResponse = await self.executeCommandSyncWithResponse(command)
+        return response
 
     async def updateCommeoDeviceValues(self, id: int):
         response: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(DeviceGetValues(id))
@@ -1533,13 +1577,13 @@ class Selve:
         response: IveoGetIdsResponse = await self.executeCommandSyncWithResponse(command)
         return response
 
-    async def iveoFactoryReset(self):
-        command = IveoFactory()
+    async def iveoFactoryReset(self, id: int):
+        command = IveoFactory(id)
         response: IveoFactoryResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
 
-    async def iveoTeach(self):
-        command = IveoTeach()
+    async def iveoTeach(self, id: int):
+        command = IveoTeach(id)
         response: IveoTeachResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
 
@@ -1557,6 +1601,12 @@ class Selve:
         command = IveoAutomatic(actorId, command)
         response: IveoAutomaticResponse = await self.executeCommandSyncWithResponse(command)
         return response.executed
+
+    async def iveoCommandResult(self):
+        """Query the result of the last iveo command execution."""
+        command = IveoResult()
+        response: IveoResultResponse = await self.executeCommandSyncWithResponse(command)
+        return response
 
 
 
@@ -1612,9 +1662,85 @@ class Selve:
 
 
 
-    ### SenSim - ToDo
+    ### SenSim
+    async def senSimGetIds(self):
+        command = SenSimGetIds()
+        response: SenSimGetIdsResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def senSimGetConfig(self, id: int):
+        command = SenSimGetConfig(id)
+        response: SenSimGetConfigResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def senSimSetConfig(self, id: int, activity: bool):
+        command = SenSimSetConfig(id, activity)
+        response: SenSimSetConfigResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def senSimGetValues(self, id: int):
+        command = SenSimGetValues(id)
+        response: SenSimGetValuesResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def senSimSetValues(self, id: int, windDigital: int, rainDigital: int, tempDigital: int, lightDigital: int,
+                              tempAnalog: int, windAnalog: int, sun1Analog: int, dayLightAnalog: int,
+                              sun2Analog: int, sun3Analog: int):
+        command = SenSimSetValues(id, windDigital, rainDigital, tempDigital, lightDigital,
+                                  tempAnalog, windAnalog, sun1Analog, dayLightAnalog,
+                                  sun2Analog, sun3Analog)
+        response: SenSimSetValuesResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def senSimSetLabel(self, id: int, label: str):
+        command = SenSimSetLabel(id, label)
+        response: SenSimSetLabelResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def senSimDrive(self, id: int, driveCommand: SenSimCommandType):
+        command = SenSimDrive(id, driveCommand)
+        response: SenSimDriveResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def senSimStore(self, id: int, actorId: int):
+        command = SenSimStore(id, actorId)
+        response: SenSimStoreResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def senSimDelete(self, id: int, actorId: int):
+        command = SenSimDelete(id, actorId)
+        response: SenSimDeleteResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def senSimFactory(self, id: int):
+        command = SenSimFactory(id)
+        response: SenSimFactoryResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
+    async def senSimGetTest(self, id: int):
+        command = SenSimGetTest(id)
+        response: SenSimGetTestResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def senSimSetTest(self, id: int, testMode: int):
+        command = SenSimSetTest(id, testMode)
+        response: SenSimSetTestResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
+
     async def updateSenSimValuesAsync(self, id: int):
         await self.executeCommand(SenSimGetValues(id))
+
+
+    ### Firmware
+    async def firmwareGetVersion(self):
+        command = FirmwareGetVersion()
+        response: FirmwareGetVersionResponse = await self.executeCommandSyncWithResponse(command)
+        return response
+
+    async def firmwareUpdate(self):
+        command = FirmwareUpdate()
+        response: FirmwareUpdateResponse = await self.executeCommandSyncWithResponse(command)
+        return response.executed
 
     ### Sender
     async def senderTeachStart(self):
