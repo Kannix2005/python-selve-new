@@ -79,3 +79,36 @@ class ParamGetRfResponse(MethodResponse):
         self.rfSensorId = int(parameters[4][1])
         self.iveoResetCount = int(parameters[5][1])
         self.rfIveoId = int(parameters[6][1])
+
+
+class ParamSetDuty(GatewayCommand):
+    def __init__(self, mode: int):
+        super().__init__(CommeoParamCommand.SETDUTY, [(ParameterType.INT, mode)])
+
+
+class ParamSetDutyResponse(MethodResponse):
+    def __init__(self, name, parameters):
+        super().__init__(name, parameters)
+        self.executed = bool(parameters[0][1])
+
+
+class ParamSetRf(GatewayCommand):
+    def __init__(self, netAddress: int, resetCount: int):
+        super().__init__(CommeoParamCommand.SETRF, [(ParameterType.INT, netAddress), (ParameterType.INT, resetCount)])
+
+
+class ParamSetRfResponse(MethodResponse):
+    def __init__(self, name, parameters):
+        super().__init__(name, parameters)
+        self.executed = bool(parameters[0][1])
+
+
+class ParamGetTemperature(GatewayCommand):
+    def __init__(self):
+        super().__init__(CommeoParamCommand.GETTEMPERATURE)
+
+
+class ParamGetTemperatureResponse(MethodResponse):
+    def __init__(self, name, parameters):
+        super().__init__(name, parameters)
+        self.temperature = int(parameters[0][1])

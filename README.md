@@ -139,6 +139,18 @@ name = device.name              # Device name
 device_type = device.type       # Device type
 ```
 
+### Gateway & Firmware Methods
+
+```python
+# Firmware
+version = await controller.firmwareGetVersion()  # Gateway firmware version
+
+# Gateway parameters
+await controller.setDuty(mode)         # Set duty cycle mode
+await controller.setRF(addr)           # Set RF base address
+temp = await controller.getTemperature() # Internal gateway temperature
+```
+
 ## Home Assistant Integration
 
 This library is used by the [homeassistant-selve](https://github.com/Kannix2005/homeassistant-selve) integration to provide native Selve device support in Home Assistant.
