@@ -149,12 +149,12 @@ class TestSelveEdgeCases:
         logger.info.assert_called_with("Test Device")
         
     def test_command_result_edge_cases(self):
-        """Test commandResult method edge cases."""
+        """Test _handleCommandResult method edge cases."""
         selve = Selve()
         
         # Test with None response
         try:
-            selve.commandResult(None)
+            selve._handleCommandResult(None)
             # This might not raise an error, which is fine
         except AttributeError:
             # This is also acceptable

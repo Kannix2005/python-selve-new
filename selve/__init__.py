@@ -491,7 +491,7 @@ class Selve:
             if isinstance(response, CommandResultResponse)\
                     or isinstance(response, IveoResultResponse):
                 #update device values
-                self.commandResult(response)
+                self._handleCommandResult(response)
             if isinstance(response, DeviceGetValuesResponse):
                 self.updateCommeoDeviceValuesFromResponse(int(response.parameters[1][1]), response)
             if isinstance(response, SenderTeachResultResponse) \
@@ -1073,7 +1073,7 @@ class Selve:
             callback(response)
 
 
-    def commandResult(self, response: IveoResultResponse | CommandResultResponse):
+    def _handleCommandResult(self, response: IveoResultResponse | CommandResultResponse):
 
         # if isinstance(response, IveoResultResponse):
         #     for id in response.executedIds:
