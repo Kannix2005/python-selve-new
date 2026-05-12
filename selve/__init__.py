@@ -12,6 +12,7 @@ except ImportError:
         __version__ = "unknown"
 
 import asyncio
+import logging
 import time
 from collections import deque
 from itertools import chain
@@ -109,7 +110,7 @@ class Selve:
         self.reversedStopPosition = 0
 
         #Logger
-        self._LOGGER = logger
+        self._LOGGER: logging.Logger = logger or logging.getLogger(__name__)
 
 
     # Legacy worker was removed in favor of dedicated TX/RX tasks.
@@ -211,16 +212,19 @@ class Selve:
         await asyncio.sleep(5)
         self._LOGGER.debug("(Selve Worker): " + "Recovering")
 
+        # Tear down the broken transport, then rebuild it directly without calling
+        # _probe_port / stopWorker, which would kill the running TX/dispatch tasks.
         await self._teardown_transport()
 
         if self._port is not None:
             try:
-                if await self._probe_port(self._port, fromConfigFlow=False):
-                    if self.rxQ is not None and self._transport is not None:
-                        await self._transport.start_reader(self.rxQ)
-                    return
+                await self._build_transport(self._port)
+                if self.rxQ is not None and self._transport is not None:
+                    await self._transport.start_reader(self.rxQ)
+                self._LOGGER.info("(Selve Worker): Recovery successful on " + str(self._port))
+                return
             except (OSError, IOError) as e:
-                self._LOGGER.debug("(Selve Worker): " + "Configured port not valid, maybe it has changed, trying other ports...")
+                self._LOGGER.debug("(Selve Worker): " + "Configured port not valid, maybe it has changed, trying other ports... " + str(e))
             except Exception as e:
                 self._LOGGER.error("(Selve Worker): " + "Unknown exception: " + str(e))
 
@@ -235,10 +239,12 @@ class Selve:
 
         for p in available_ports:
             try:
-                if await self._probe_port(p.device, fromConfigFlow=False):
-                    if self.rxQ is not None and self._transport is not None:
-                        await self._transport.start_reader(self.rxQ)
-                    return
+                await self._build_transport(p.device)
+                self._port = p.device
+                if self.rxQ is not None and self._transport is not None:
+                    await self._transport.start_reader(self.rxQ)
+                self._LOGGER.info("(Selve Worker): Recovery successful on " + str(p.device))
+                return
             except Exception as e:
                 self._LOGGER.error("(Selve Worker): " + "Error at com port: " + str(e))
         else:
@@ -1057,20 +1063,39 @@ class Selve:
             callback(response)
 
 
-    def _handleCommandResult(self, response: IveoResultResponse | CommandResultResponse):
+    def _handleCommandResult(self, response):
+        if isinstance(response, IveoResultResponse):
+            for id in response.executedIds:
+                dev = self.getDevice(id, SelveTypes.IVEO)
+                if dev is None:
+                    continue
+                if response.command is DriveCommandIveo.DOWN:
+                    dev.state = MovementState.DOWN_ON
+                elif response.command is DriveCommandIveo.UP:
+                    dev.state = MovementState.UP_ON
+                elif response.command is DriveCommandIveo.STOP:
+                    dev.state = MovementState.STOPPED_OFF
+                self.addOrUpdateDevice(dev, SelveTypes.IVEO)
 
-        # if isinstance(response, IveoResultResponse):
-        #     for id in response.executedIds:
-        #         dev = self.getDevice(id, SelveTypes.IVEO)
-
-        #         if response.command is DriveCommandIveo.DOWN:
-        #             dev.state = MovementState.DOWN_ON
-        #         if response.command is DriveCommandIveo.UP:
-        #             dev.state = MovementState.UP_ON
-        #         if response.command is DriveCommandIveo.STOP:
-        #             dev.state = MovementState.STOPPED_OFF
-
-        #         self.addOrUpdateDevice(dev, SelveTypes.IVEO)
+        elif isinstance(response, CommandResultResponse):
+            for id in response.successIds:
+                dev = self.getDevice(id, SelveTypes.DEVICE)
+                if dev is None:
+                    continue
+                dev.unreachable = False
+                if response.command is DriveCommandCommeo.DRIVEDOWN:
+                    dev.state = MovementState.DOWN_ON
+                elif response.command is DriveCommandCommeo.DRIVEUP:
+                    dev.state = MovementState.UP_ON
+                elif response.command is DriveCommandCommeo.STOP:
+                    dev.state = MovementState.STOPPED_OFF
+                self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
+            for id in response.failedIds:
+                dev = self.getDevice(id, SelveTypes.DEVICE)
+                if dev is None:
+                    continue
+                dev.unreachable = True
+                self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
 
         for callback in self._callbacks:
             callback()
@@ -1350,7 +1375,7 @@ class Selve:
         else:
             dev.targetValue = 100 - response.targetValue if response.targetValue else 0
 
-        dev.unreachable = response.unreachable if response.unreachable else True
+        dev.unreachable = response.unreachable
         dev.overload = response.overload if response.overload else False
         dev.obstructed = response.obstructed if response.obstructed else False
         dev.alarm = response.alarm if response.alarm else False
