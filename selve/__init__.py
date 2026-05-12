@@ -256,6 +256,8 @@ class Selve:
 
 
     async def startWorker(self):
+        if self._tx_task is not None and not self._tx_task.done():
+            return  # already running
         self._LOGGER.debug("Starting worker")
         self._pauseWorker.clear()
         self._stopThread.clear()
@@ -1436,14 +1438,17 @@ class Selve:
     async def _movement_poll_loop(self, device_id: int, interval: float = 0.5, timeout: float = 60.0) -> None:
         """Poll DeviceGetValues every *interval* seconds until movement stops or timeout."""
         elapsed = 0.0
-        while not self._stopThread.is_set() and elapsed < timeout:
-            await asyncio.sleep(interval)
-            elapsed += interval
-            dev = self.getDevice(device_id, SelveTypes.DEVICE)
-            if dev is None or dev.state == MovementState.STOPPED_OFF:
-                break
-            await self.updateCommeoDeviceValuesAsync(device_id)
-        self._movement_tasks.pop(device_id, None)
+        try:
+            while not self._stopThread.is_set() and elapsed < timeout:
+                await asyncio.sleep(interval)
+                elapsed += interval
+                if self.getDevice(device_id, SelveTypes.DEVICE) is None:
+                    break
+                await self.updateCommeoDeviceValuesAsync(device_id)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._movement_tasks.pop(device_id, None)
 
     async def moveDeviceUp(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:

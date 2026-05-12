@@ -101,6 +101,7 @@ class SerialTransport:
             decoded = line_bytes.decode(errors="ignore").strip()
             if decoded == "":
                 if buffer and self._rx_queue:
+                    self._logger.debug("Serial RX: %s", buffer)
                     await self._rx_queue.put(buffer)
                     buffer = ""
                 continue
