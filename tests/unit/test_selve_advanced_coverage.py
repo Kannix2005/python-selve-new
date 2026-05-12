@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch, AsyncMock, call
 import asyncio
 import logging
-import serial
+import serialx
 import xml.etree.ElementTree as ET
 
 # Import the Selve package
