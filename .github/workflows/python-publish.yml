@@ -1,99 +1,44 @@
-# This workflow will upload a Python Package using Twine when a release is created
-# For more information see: https://help.github.com/en/actions/language-and-framework-guides/using-python-with-github-actions#publishing-to-package-registries
+# Publishes to PyPI after the "Run Tests" workflow succeeds on a version tag.
 
-name: Test and Publish Python Package
+name: Publish Python Package
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'  # Trigger on version tags
-  pull_request:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["Run Tests"]
+    types: [completed]
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
-    
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Fetch all history for setuptools_scm
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install setuptools-scm
-        pip install -e .
-        pip install pytest pytest-asyncio coverage pytest-timeout
-    
-    - name: Set PYTHONPATH
-      run: |
-        echo "PYTHONPATH=${{ github.workspace }}" >> $GITHUB_ENV
-    
-    - name: Run tests without coverage
-      run: |
-        pytest tests/test_import.py -v --timeout=10
-        pytest tests/unit/ -v --timeout=30 --ignore=tests/unit/test_gateway_error_handling.py
-    
-    - name: Generate coverage report (Python 3.11 only)
-      if: matrix.python-version == '3.11'
-      run: |
-        # Generate coverage in smaller batches to avoid RAM issues
-        coverage run -m pytest tests/test_import.py
-        coverage run --append -m pytest tests/unit/test_commands.py tests/unit/test_device.py tests/unit/test_group.py
-        coverage run --append -m pytest tests/unit/test_service_commands.py tests/unit/test_group_commands.py tests/unit/test_util.py
-        coverage run --append -m pytest tests/unit/test_gateway_configuration_issues.py tests/unit/test_mock_devices_and_groups.py
-        coverage run --append -m pytest tests/unit/test_mock_sensors_and_senders.py tests/unit/test_service_command_errors.py
-        coverage run --append -m pytest tests/unit/test_mock_commands.py tests/unit/test_gateway_error_handling_fixed.py tests/unit/test_missing_components.py
-        coverage xml
-        coverage html
-    
-    - name: Upload test results
-      uses: actions/upload-artifact@v4
-      if: always() && matrix.python-version == '3.11'
-      with:
-        name: test-results
-        path: |
-          test-results.xml
-          htmlcov/
-          coverage.xml
-
   deploy:
-    needs: test
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')  # Only run on version tags
+    # Only publish when tests passed AND the trigger was a version tag (e.g. v2.5.2)
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
 
     steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Fetch all history for setuptools_scm
+        ref: ${{ github.event.workflow_run.head_sha }}
+
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.x'
-    - name: Install dependencies
+
+    - name: Install build dependencies
       run: |
         python -m pip install --upgrade pip
         pip install build setuptools-scm
+
     - name: Build package
       run: |
         python -m build
-    - name: Publish package
-      if: startsWith(github.ref, 'refs/tags/v')
+
+    - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
       with:
         user: __token__
