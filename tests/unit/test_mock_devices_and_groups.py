@@ -45,36 +45,34 @@ class TestMockDevicesAndGroups:
         asyncio.set_event_loop(self.loop)
         
         # Create a Selve instance with mocked components
-        with patch('selve.Selve._worker', AsyncMock()), \
-             patch('selve.serial.Serial'):
-            self.selve = Selve(port=None, discover=False, develop=True, 
-                              logger=self.logger, loop=self.loop)
-            
-            # Mock the execute command methods
-            self.selve.executeCommand = AsyncMock()
-            self.selve.executeCommandSyncWithResponse = AsyncMock()
-            
-            # Initialize test devices
-            self.commeo_device = SelveDevice(1, SelveTypes.DEVICE, DeviceType.SHUTTER)
-            self.commeo_device.communicationType = CommunicationType.COMMEO
-            self.commeo_device.name = "Test Commeo Device"
-            
-            self.iveo_device = IveoDevice(2, SelveTypes.IVEO, DeviceType.SHUTTER)
-            self.iveo_device.communicationType = CommunicationType.IVEO
-            self.iveo_device.name = "Test Iveo Device"
-            
-            self.group = SelveGroup(1, SelveTypes.GROUP, DeviceType.SHUTTER)
-            self.group.name = "Test Group"
-            
-            # Add the test devices to the selve instance
-            self.selve.devices = {
-                SelveTypes.DEVICE.value: {1: self.commeo_device},
-                SelveTypes.IVEO.value: {2: self.iveo_device},
-                SelveTypes.GROUP.value: {1: self.group},
-                SelveTypes.SENSIM.value: {},
-                SelveTypes.SENSOR.value: {},
-                SelveTypes.SENDER.value: {}
-            }
+        self.selve = Selve(port=None, discover=False, develop=True,
+                          logger=self.logger, loop=self.loop)
+
+        # Mock the execute command methods
+        self.selve.executeCommand = AsyncMock()
+        self.selve.executeCommandSyncWithResponse = AsyncMock()
+
+        # Initialize test devices
+        self.commeo_device = SelveDevice(1, SelveTypes.DEVICE, DeviceType.SHUTTER)
+        self.commeo_device.communicationType = CommunicationType.COMMEO
+        self.commeo_device.name = "Test Commeo Device"
+
+        self.iveo_device = IveoDevice(2, SelveTypes.IVEO, DeviceType.SHUTTER)
+        self.iveo_device.communicationType = CommunicationType.IVEO
+        self.iveo_device.name = "Test Iveo Device"
+
+        self.group = SelveGroup(1, SelveTypes.GROUP, DeviceType.SHUTTER)
+        self.group.name = "Test Group"
+
+        # Add the test devices to the selve instance
+        self.selve.devices = {
+            SelveTypes.DEVICE.value: {1: self.commeo_device},
+            SelveTypes.IVEO.value: {2: self.iveo_device},
+            SelveTypes.GROUP.value: {1: self.group},
+            SelveTypes.SENSIM.value: {},
+            SelveTypes.SENSOR.value: {},
+            SelveTypes.SENDER.value: {}
+        }
             
     def teardown_method(self):
         """Clean up the test environment."""

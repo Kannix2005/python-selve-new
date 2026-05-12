@@ -113,13 +113,10 @@ def test_replacement():
     logging.info("Replacement test passed successfully")
 
 
-@patch('selve.serial.Serial')
-def test_selve_with_replacement(mock_serial):
-    """Test Selve with the replacement serial device."""
-    # Set up the mock
-    mock_device = MockSerialDevice()
-    mock_serial.return_value = mock_device
-    
+def test_selve_with_replacement():
+    """Test Selve with a mocked transport layer."""
+    from unittest.mock import AsyncMock
+
     # Set up logging
     logger = logging.getLogger("ReplacementTestLogger")
     logger.setLevel(logging.DEBUG)
@@ -128,35 +125,37 @@ def test_selve_with_replacement(mock_serial):
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    
+
     # Create a loop for async testing
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
+
     try:
-        # Create the Selve instance with the mock
+        # Create the Selve instance
         selve_instance = Selve(port="COM3", discover=False, develop=True,
                               logger=logger, loop=loop)
-        
-        # Mock the ping response processing to avoid XML parsing issues
-        from unittest.mock import AsyncMock
+
+        # Mock all gateway commands
         ping_response = MagicMock()
         ping_response.name = "selve.GW.service.ping"
         selve_instance.executeCommandSyncWithResponse = AsyncMock(return_value=ping_response)
         selve_instance.executeCommandSyncWithResponsefromWorker = AsyncMock(return_value=ping_response)
-        
+
+        # Mock _probe_port so setup() succeeds without real hardware
+        selve_instance._probe_port = AsyncMock(return_value=True)
+
         # Set up the Selve instance
         loop.run_until_complete(selve_instance.setup())
-        
+
         # Test ping
         ping_result = loop.run_until_complete(selve_instance.pingGatewayFromWorker())
         assert ping_result is True, "Ping should succeed with the mock device"
-        
+
         # Clean up
         loop.run_until_complete(selve_instance.stopWorker())
     finally:
         loop.close()
-    
+
     # Log success
     logging.info("Selve with replacement test passed successfully")
 

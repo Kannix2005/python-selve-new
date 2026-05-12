@@ -39,17 +39,17 @@ def event_loop():
 
 @pytest.fixture
 def mock_serial():
-    """Provide a mocked serial interface."""
-    with patch('selve.serial.Serial') as mock_serial:
-        # Configure mock serial port
-        mock_serial_instance = mock_serial.return_value
-        mock_serial_instance.is_open = True
-        mock_serial_instance.read_until.return_value = b'<methodResponse name="selve.GW.service.ping"></methodResponse>'
-        mock_serial_instance.write = MagicMock()
-        mock_serial_instance.in_waiting = 0
-        mock_serial_instance.readline = MagicMock(return_value=b'<methodResponse name="selve.GW.command.result" result="true"></methodResponse>')
-        
-        yield mock_serial
+    """Provide a mocked serial transport."""
+    with patch('selve.util.serial_transport.SerialTransport') as mock_transport:
+        mock_instance = mock_transport.return_value
+        mock_instance.is_open = True
+        mock_instance.ensure_open = AsyncMock()
+        mock_instance.start_reader = AsyncMock()
+        mock_instance.stop_reader = AsyncMock()
+        mock_instance.write = AsyncMock()
+        mock_instance.shutdown = AsyncMock()
+
+        yield mock_transport
 
 
 @pytest.fixture

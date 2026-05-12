@@ -38,33 +38,31 @@ class TestMockSensorsAndSenders(unittest.TestCase):
         asyncio.set_event_loop(self.loop)
         
         # Create a Selve instance with mocked components
-        with patch('selve.Selve._worker', AsyncMock()), \
-             patch('selve.serial.Serial'):
-            self.selve = Selve(port=None, develop=True, logger=self.logger, loop=self.loop)
-            
-            # Mock the execute command methods
-            self.selve.executeCommand = AsyncMock()
-            self.selve.executeCommandSyncWithResponse = AsyncMock()
-            
-            # Create test components
-            self.sensor = SelveSensor(1, SelveTypes.SENSOR)
-            self.sensor.name = "Test Sensor"
-            
-            self.sender = SelveSender(1, SelveTypes.SENDER)
-            self.sender.name = "Test Sender"
-            
-            self.sensim = SelveSenSim(1, SelveTypes.SENSIM)
-            self.sensim.name = "Test SenSim"
-            
-            # Add the test components to the selve instance
-            self.selve.devices = {
-                SelveTypes.DEVICE.value: {},
-                SelveTypes.IVEO.value: {},
-                SelveTypes.GROUP.value: {},
-                SelveTypes.SENSOR.value: {1: self.sensor},
-                SelveTypes.SENDER.value: {1: self.sender},
-                SelveTypes.SENSIM.value: {1: self.sensim}
-            }
+        self.selve = Selve(port=None, develop=True, logger=self.logger, loop=self.loop)
+
+        # Mock the execute command methods
+        self.selve.executeCommand = AsyncMock()
+        self.selve.executeCommandSyncWithResponse = AsyncMock()
+
+        # Create test components
+        self.sensor = SelveSensor(1, SelveTypes.SENSOR)
+        self.sensor.name = "Test Sensor"
+
+        self.sender = SelveSender(1, SelveTypes.SENDER)
+        self.sender.name = "Test Sender"
+
+        self.sensim = SelveSenSim(1, SelveTypes.SENSIM)
+        self.sensim.name = "Test SenSim"
+
+        # Add the test components to the selve instance
+        self.selve.devices = {
+            SelveTypes.DEVICE.value: {},
+            SelveTypes.IVEO.value: {},
+            SelveTypes.GROUP.value: {},
+            SelveTypes.SENSOR.value: {1: self.sensor},
+            SelveTypes.SENDER.value: {1: self.sender},
+            SelveTypes.SENSIM.value: {1: self.sensim}
+        }
         
     def tearDown(self):
         """Clean up the test environment."""

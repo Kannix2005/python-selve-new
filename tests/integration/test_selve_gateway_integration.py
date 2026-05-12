@@ -42,9 +42,6 @@ class TestSelveGatewayIntegration:
             
             # Verify port was set correctly
             assert selve._port == "COM3"
-            
-            # Verify serial was initialized
-            assert selve._serial is not None
     
     @pytest.mark.asyncio
     async def test_gateway_setup_with_invalid_port(self, mock_serial, logger):
@@ -85,14 +82,8 @@ class TestSelveGatewayIntegration:
         # Directly test the recover method with mocked components
         with patch.object(mock_selve_instance, '_LOGGER') as mock_logger:
             with patch('asyncio.sleep', return_value=None):  # Skip the sleep delay
-                with patch('selve.serial.Serial') as mock_serial_class:
-                    # Configure the mock serial to succeed
-                    mock_serial_instance = MagicMock()
-                    mock_serial_instance.is_open = True
-                    mock_serial_class.return_value = mock_serial_instance
-                    
-                    # Mock _probe_port to return True immediately
-                    mock_selve_instance._probe_port = AsyncMock(return_value=True)
+                # Mock _probe_port to return True immediately
+                with patch.object(mock_selve_instance, '_probe_port', AsyncMock(return_value=True)):
                     mock_selve_instance._port = "COM3"
                     
                     # Call recover directly

@@ -26,14 +26,12 @@ class TestGatewayErrorHandling(unittest.TestCase):
         self.logger = MagicMock(spec=logging.Logger)
         
         # Create a Selve instance with mocked components
-        with patch('selve.Selve._worker', AsyncMock()), \
-             patch('selve.serial.Serial'):
-            self.selve = Selve(port=None, develop=True, logger=self.logger, loop=self.loop)
-            
-            # Mock the execute command methods
-            self.selve.executeCommand = AsyncMock()
-            self.selve.executeCommandSyncWithResponse = AsyncMock()
-            self.selve.executeCommandSyncWithResponsefromWorker = AsyncMock()
+        self.selve = Selve(port=None, develop=True, logger=self.logger, loop=self.loop)
+
+        # Mock the execute command methods
+        self.selve.executeCommand = AsyncMock()
+        self.selve.executeCommandSyncWithResponse = AsyncMock()
+        self.selve.executeCommandSyncWithResponsefromWorker = AsyncMock()
         
     def tearDown(self):
         """Clean up the test environment."""
