@@ -25,16 +25,14 @@ def logger():
 @pytest.fixture
 def selve_instance(logger, event_loop):
     """Create a Selve instance with mocked components."""
-    with patch('selve.Selve._worker', AsyncMock()), \
-         patch('selve.serial.Serial'):
-        selve = Selve(port=None, develop=True, logger=logger, loop=event_loop)
-        
-        # Mock the execute command methods
-        selve.executeCommand = AsyncMock()
-        selve.executeCommandSyncWithResponse = AsyncMock()
-        selve.executeCommandSyncWithResponsefromWorker = AsyncMock()
-        
-        yield selve
+    selve = Selve(port=None, develop=True, logger=logger, loop=event_loop)
+
+    # Mock the execute command methods
+    selve.executeCommand = AsyncMock()
+    selve.executeCommandSyncWithResponse = AsyncMock()
+    selve.executeCommandSyncWithResponsefromWorker = AsyncMock()
+
+    yield selve
 
 
 @pytest.mark.asyncio

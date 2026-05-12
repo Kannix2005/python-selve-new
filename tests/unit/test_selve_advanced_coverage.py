@@ -19,19 +19,15 @@ class TestSelveAdvancedCoverage(unittest.TestCase):
         """Set up test fixtures."""
         self.mock_logger = MagicMock()
     
-    @patch('selve.serial.Serial')
-    def test_worker_method_parts(self, mock_serial):
+    def test_worker_method_parts(self):
         """Test parts of the worker method."""
         gateway = Selve(port='COM1', logger=self.mock_logger)
-        gateway._serial = MagicMock()
-        gateway._serial.is_open = True
-        gateway._serial.in_waiting = 0
         gateway.txQ = asyncio.Queue()
         gateway.rxQ = asyncio.Queue()
-        
+
         # Test that worker can handle empty queues
         gateway._pauseWorker.set()  # Pause the worker
-        
+
         # Since the worker is complex, we test individual components
         self.assertIsNotNone(gateway._pauseWorker)
         self.assertIsNotNone(gateway._stopThread)
@@ -41,7 +37,7 @@ class TestSelveAdvancedCoverage(unittest.TestCase):
         gateway = Selve(logger=self.mock_logger)
         
         # Test list_ports method
-        with patch('selve.list_ports.comports') as mock_comports:
+        with patch('selve._comports') as mock_comports:
             mock_port1 = MagicMock()
             mock_port1.device = 'COM1'
             mock_port1.description = 'USB Serial Port'

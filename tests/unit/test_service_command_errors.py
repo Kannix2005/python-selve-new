@@ -31,9 +31,9 @@ class TestServiceCommandErrors(unittest.TestCase):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         
-        # Patch serial and worker to avoid actual hardware access
+        # Patch transport to avoid actual hardware access
         self.worker_patcher = patch('selve.Selve._worker', AsyncMock())
-        self.serial_patcher = patch('selve.serial.Serial')
+        self.serial_patcher = patch('selve.util.serial_transport.SerialTransport')
         self.worker_mock = self.worker_patcher.start()
         self.serial_mock = self.serial_patcher.start()
         

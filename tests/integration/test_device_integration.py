@@ -3,7 +3,6 @@ import logging
 import sys
 import asyncio
 import os
-import serial
 from unittest.mock import MagicMock, patch, AsyncMock
 
 # Import the Selve package
@@ -38,16 +37,17 @@ class TestDeviceIntegration(unittest.TestCase):
 
     def setUp(self):
         """Set up mock serial port and other mocks."""
-        self.mock_serial_patcher = patch('selve.serial.Serial')
+        self.mock_serial_patcher = patch('selve.util.serial_transport.SerialTransport')
         self.mock_serial = self.mock_serial_patcher.start()
-        
-        # Configure mock serial port
-        mock_serial_instance = self.mock_serial.return_value
-        mock_serial_instance.is_open = True
-        mock_serial_instance.read_until.return_value = b'<methodResponse name="selve.GW.service.ping"></methodResponse>'
-        mock_serial_instance.write = MagicMock()
-        mock_serial_instance.in_waiting = 0
-        mock_serial_instance.readline = MagicMock(return_value=b'<methodResponse name="selve.GW.command.result" result="true"></methodResponse>')
+
+        # Configure mock transport
+        mock_transport_instance = self.mock_serial.return_value
+        mock_transport_instance.is_open = True
+        mock_transport_instance.ensure_open = AsyncMock()
+        mock_transport_instance.start_reader = AsyncMock()
+        mock_transport_instance.stop_reader = AsyncMock()
+        mock_transport_instance.write = AsyncMock()
+        mock_transport_instance.shutdown = AsyncMock()
         
         # Create the Selve instance
         self.selve = Selve(port="COM3", discover=False, develop=True, 
@@ -241,7 +241,7 @@ class TestDeviceIntegration(unittest.TestCase):
     def test_connection_error_handling(self):
         """Test handling of connection errors in device commands."""
         # Make executeCommandSyncWithResponse raise an exception
-        self.selve.executeCommandSyncWithResponse.side_effect = serial.SerialException("Connection failed")
+        self.selve.executeCommandSyncWithResponse.side_effect = OSError("Connection failed")
         
         # Setup the test
         async def test_async():
@@ -250,7 +250,7 @@ class TestDeviceIntegration(unittest.TestCase):
                 result = await self.selve.moveDeviceUp(self.device)
                 # The method should have caught the exception and returned False
                 self.assertFalse(result, "Method should return False on serial exception")
-            except serial.SerialException:
+            except OSError:
                 # If the exception wasn't caught, we need to patch the method
                 from unittest.mock import patch
                 

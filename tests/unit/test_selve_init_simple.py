@@ -33,7 +33,7 @@ class TestSelveInitSimple:
     def test_list_ports(self):
         """Test list_ports method"""
         selve = Selve(logger=Mock())
-        with patch('selve.list_ports.comports') as mock_comports:
+        with patch('selve._comports') as mock_comports:
             mock_comports.return_value = [Mock(device="COM1"), Mock(device="COM2")]
             ports = selve.list_ports()
             assert len(ports) == 2
@@ -96,28 +96,24 @@ class TestSelveInitSimple:
         selve.updateOptions(reversedStopPosition=1)
         assert selve.reversedStopPosition == 1
         
-    @patch('selve.serial.Serial')
     @pytest.mark.asyncio
-    async def test_check_port_success(self, mock_serial):
+    async def test_check_port_success(self):
         """Test check_port method with successful port"""
         selve = Selve(logger=Mock())
-        mock_serial_instance = Mock()
-        mock_serial.return_value = mock_serial_instance
 
         with patch.object(selve, '_probe_port', AsyncMock(return_value=True)) as mock_probe:
             result = await selve.check_port("COM1")
             assert result is True
             mock_probe.assert_awaited_once_with("COM1", fromConfigFlow=True)
-            
-    @patch('selve.serial.Serial')
+
     @pytest.mark.asyncio
-    async def test_check_port_failure(self, mock_serial):
+    async def test_check_port_failure(self):
         """Test check_port method with failed port"""
         selve = Selve(logger=Mock())
-        mock_serial.side_effect = serial.SerialException("Port not found")
-        
-        result = await selve.check_port("COM1")
-        assert result is False
+
+        with patch.object(selve, '_probe_port', AsyncMock(return_value=False)):
+            result = await selve.check_port("COM1")
+            assert result is False
         
     @pytest.mark.asyncio
     async def test_check_port_none(self):

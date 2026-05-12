@@ -33,26 +33,24 @@ class TestMissingComponentsHandling(unittest.TestCase):
         asyncio.set_event_loop(self.loop)
         
         # Create a Selve instance with mocked components
-        with patch('selve.Selve._worker', AsyncMock()), \
-             patch('selve.serial.Serial'):
-            self.selve = Selve(port=None, develop=True, logger=self.logger, loop=self.loop)
-            
-            # Mock the execute command methods
-            self.selve.executeCommand = AsyncMock()
-            self.selve.executeCommandSyncWithResponse = AsyncMock()
-            
-            # Create test components
-            self.group = SelveGroup(1, SelveTypes.GROUP, DeviceType.SHUTTER)
-            self.group.name = "Test Group"
-            
-            self.sensor = SelveSensor(1, SelveTypes.SENSOR, DeviceType.UNKNOWN)
-            self.sensor.name = "Test Sensor"
-            
-            # Add the components to the selve instance
-            self.selve.devices = {
-                "group": {1: self.group},
-                "sensor": {1: self.sensor}
-            }
+        self.selve = Selve(port=None, develop=True, logger=self.logger, loop=self.loop)
+
+        # Mock the execute command methods
+        self.selve.executeCommand = AsyncMock()
+        self.selve.executeCommandSyncWithResponse = AsyncMock()
+
+        # Create test components
+        self.group = SelveGroup(1, SelveTypes.GROUP, DeviceType.SHUTTER)
+        self.group.name = "Test Group"
+
+        self.sensor = SelveSensor(1, SelveTypes.SENSOR, DeviceType.UNKNOWN)
+        self.sensor.name = "Test Sensor"
+
+        # Add the components to the selve instance
+        self.selve.devices = {
+            "group": {1: self.group},
+            "sensor": {1: self.sensor}
+        }
         
     def tearDown(self):
         """Clean up the test environment."""

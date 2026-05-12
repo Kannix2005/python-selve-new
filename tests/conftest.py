@@ -3,7 +3,19 @@ import logging
 import sys
 import asyncio
 import nest_asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
+
+# Stub out serialx before any selve import so the protobuf/aioesphomeapi
+# version conflict in serialx's optional esphome platform never fires.
+_serialx_mock = MagicMock()
+_serialx_mock.Parity = MagicMock()
+_serialx_mock.Parity.NONE = "N"
+_serialx_mock.open_serial_connection = AsyncMock(
+    return_value=(MagicMock(), MagicMock())
+)
+sys.modules.setdefault("serialx", _serialx_mock)
+sys.modules.setdefault("serialx.platforms", MagicMock())
+sys.modules.setdefault("serialx.platforms.serial_esphome", MagicMock())
 
 # Ermöglicht das Ausführen von async-Funktionen in einem bereits laufenden Event-Loop
 # Dies ist wichtig für die Integration-Tests
@@ -34,19 +46,23 @@ def logger():
 
 @pytest.fixture
 def mock_serial():
-    """Mock the serial port for testing."""
-    with patch('selve.serial.Serial') as mock:
+    """Mock the SerialTransport for testing."""
+    with patch('selve.util.serial_transport.SerialTransport') as mock:
         mock_instance = MagicMock()
         mock.return_value = mock_instance
         mock_instance.is_open = True
-        mock_instance.read_until.return_value = b'<methodResponse name="selve.GW.service.ping"></methodResponse>'
+        mock_instance.ensure_open = AsyncMock()
+        mock_instance.start_reader = AsyncMock()
+        mock_instance.stop_reader = AsyncMock()
+        mock_instance.write = AsyncMock()
+        mock_instance.shutdown = AsyncMock()
         yield mock
 
 
 @pytest.fixture
 def mock_list_ports():
-    """Mock the list_ports.comports function."""
-    with patch('selve.list_ports.comports') as mock:
+    """Mock the _comports function."""
+    with patch('selve._comports') as mock:
         # Create a mock port
         mock_port = MagicMock()
         mock_port.device = "COM3"

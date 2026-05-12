@@ -48,7 +48,7 @@ class TestSelveMainClassExtensive:
         """Test the list_ports method."""
         selve_instance = Selve()
         
-        with patch('selve.list_ports.comports') as mock_comports:
+        with patch('selve._comports') as mock_comports:
             mock_port = Mock()
             mock_port.device = "COM3"
             mock_comports.return_value = [mock_port]
@@ -57,31 +57,24 @@ class TestSelveMainClassExtensive:
             assert ports == [mock_port]
 
     @pytest.mark.asyncio
-    @patch('selve.serial.Serial')
-    async def test_check_port_valid(self, mock_serial):
+    async def test_check_port_valid(self):
         """Test check_port with a valid port using probe stub and logger."""
         selve_instance = Selve()
         selve_instance._LOGGER = Mock()
-        
-        mock_serial_instance = Mock()
-        mock_serial_instance.is_open = True
-        mock_serial.return_value = mock_serial_instance
-        
+
         with patch.object(selve_instance, '_probe_port', AsyncMock(return_value=True)) as mock_probe:
             result = await selve_instance.check_port("COM3")
         assert result is True
         mock_probe.assert_awaited_once_with("COM3", fromConfigFlow=True)
 
     @pytest.mark.asyncio
-    @patch('selve.serial.Serial')
-    async def test_check_port_invalid(self, mock_serial):
+    async def test_check_port_invalid(self):
         """Test check_port with an invalid port."""
         mock_logger = Mock()
         selve_instance = Selve(logger=mock_logger)
-        
-        mock_serial.side_effect = Exception("Port not found")
-        
-        result = await selve_instance.check_port("INVALID_PORT")
+
+        with patch.object(selve_instance, '_probe_port', AsyncMock(return_value=False)):
+            result = await selve_instance.check_port("INVALID_PORT")
         assert result is False
 
     def test_register_and_remove_callback(self):
@@ -122,16 +115,11 @@ class TestSelveMainClassExtensive:
         assert selve_instance.reversedStopPosition == 1
 
     @pytest.mark.asyncio
-    @patch('selve.serial.Serial')
-    async def test_setup_with_valid_port(self, mock_serial):
+    async def test_setup_with_valid_port(self):
         """Test setup with a valid port."""
         mock_logger = Mock()
         selve_instance = Selve(port="COM3", logger=mock_logger)
-        
-        mock_serial_instance = Mock()
-        mock_serial_instance.is_open = True
-        mock_serial.return_value = mock_serial_instance
-        
+
         with patch.object(selve_instance, '_probe_port', AsyncMock(return_value=True)) as mock_probe, \
              patch.object(selve_instance, 'discover', return_value=None), \
              patch.object(selve_instance, 'startWorker', return_value=None):
@@ -144,11 +132,10 @@ class TestSelveMainClassExtensive:
         """Test setup when unknown exception occurs."""
         mock_logger = Mock()
         selve_instance = Selve(port="COM3", logger=mock_logger)
-        
-        with patch('selve.list_ports.comports', return_value=[]):
-            with patch('selve.serial.Serial', side_effect=RuntimeError("Unknown error")):
-                with pytest.raises(Exception):  # Expect PortError to be raised
-                    await selve_instance.setup()
+
+        with patch('selve._comports', return_value=[]):
+            with pytest.raises(Exception):  # Expect PortError to be raised
+                await selve_instance.setup()
 
     def test_create_error_method(self):
         """Test create_error method."""

@@ -86,7 +86,7 @@ class TestSelveInit:
 class TestSelveListPorts:
     """Test the list_ports method."""
     
-    @patch('selve.list_ports.comports')
+    @patch('selve._comports')
     def test_list_ports_returns_available_ports(self, mock_comports, minimal_selve):
         """Test that list_ports returns available COM ports."""
         mock_port1 = Mock()
@@ -102,7 +102,7 @@ class TestSelveListPorts:
         assert ports[1] == mock_port2
         mock_comports.assert_called_once()
 
-    @patch('selve.list_ports.comports')
+    @patch('selve._comports')
     def test_list_ports_empty_list(self, mock_comports, minimal_selve):
         """Test list_ports when no ports are available."""
         mock_comports.return_value = []
@@ -353,30 +353,27 @@ class TestSelveWorkerThread:
     @pytest.mark.asyncio
     async def test_start_worker(self, selve_instance):
         """Test starting the worker thread without real serial port."""
-        with patch.object(selve_instance, '_worker') as mock_worker:
-            mock_worker.return_value = True
-            # Avoid real serial port: provide fake transport with start_reader stub
-            fake_transport = MagicMock()
-            selve_instance._transport = fake_transport
-            await selve_instance.startWorker()
-            fake_transport.start_reader.assert_called()
-            assert selve_instance.workerTask is not None
+        fake_transport = MagicMock()
+        fake_transport.start_reader = AsyncMock()
+        fake_transport.stop_reader = AsyncMock()
+        selve_instance._transport = fake_transport
+        await selve_instance.startWorker()
+        fake_transport.start_reader.assert_called()
+        assert selve_instance.workerTask is not None
 
     @pytest.mark.asyncio
     async def test_stop_worker(self, selve_instance):
         """Test stopping the worker thread without real serial port."""
-        # First start a worker
-        with patch.object(selve_instance, '_worker') as mock_worker:
-            mock_worker.return_value = True
-            fake_transport = MagicMock()
-            selve_instance._transport = fake_transport
-            await selve_instance.startWorker()
-            
-            # Now stop it
-            await selve_instance.stopWorker()
-            
-            assert selve_instance._stopThread.is_set()
-            fake_transport.stop_reader.assert_called()
+        fake_transport = MagicMock()
+        fake_transport.start_reader = AsyncMock()
+        fake_transport.stop_reader = AsyncMock()
+        selve_instance._transport = fake_transport
+        await selve_instance.startWorker()
+
+        await selve_instance.stopWorker()
+
+        assert selve_instance._stopThread.is_set()
+        fake_transport.stop_reader.assert_called()
 
     def test_pause_worker_internal(self, minimal_selve):
         """Test accessing internal pause worker event."""

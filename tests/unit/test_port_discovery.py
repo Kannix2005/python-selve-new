@@ -33,15 +33,15 @@ def event_loop():
 
 @pytest.fixture
 def mock_serial():
-    """Mock serial port."""
-    with patch('selve.serial.Serial') as mock_serial:
+    """Mock serial transport."""
+    with patch('selve.util.serial_transport.SerialTransport') as mock_serial:
         yield mock_serial
 
 
 @pytest.fixture
 def mock_list_ports():
-    """Mock list_ports to return test ports."""
-    with patch('selve.list_ports.comports') as mock_list_ports:
+    """Mock _comports to return test ports."""
+    with patch('selve._comports') as mock_list_ports:
         yield mock_list_ports
 
 
@@ -131,7 +131,7 @@ async def test_check_port_invalid(logger, event_loop, mock_serial, mock_list_por
 async def test_check_port_serial_exception(logger, event_loop, mock_serial, mock_list_ports):
     """Test checking a port that raises a SerialException."""
     # Setup mock serial to raise an exception when opened
-    mock_serial.side_effect = selve.SerialException("Test exception")
+    mock_serial.side_effect = OSError("Test exception")
     
     # Create selve instance with port discovery disabled
     selve_instance = selve.Selve(port=None, discover=False, develop=True,
