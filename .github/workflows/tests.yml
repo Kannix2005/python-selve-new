@@ -48,7 +48,7 @@ jobs:
     
     - name: Run integration tests (without hardware)
       run: |
-        pytest tests/integration/ -v -m "not hardware" --timeout=30
+        pytest tests/integration/ -v -m "not hardware" --timeout=30 --ignore=tests/integration/test_selve_hardware.py
     
     - name: Generate coverage report (Python 3.11 only)
       if: matrix.python-version == '3.11'
