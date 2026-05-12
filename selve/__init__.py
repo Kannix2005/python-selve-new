@@ -778,6 +778,13 @@ class Selve:
         # Rebuild transport for a clean connection (avoids stale StreamReader state
         # left over from _probe_port, which explains why USB-replug was needed).
         await self._teardown_transport()
+        # Flush any stale messages left in the receive queue from the probe phase
+        # (unsolicited gateway events or responses the cancelled dispatch task never
+        # consumed).  If we don't do this, the dispatch loop matches those old
+        # messages against the new discover() command futures, resolving them with
+        # the wrong response object and causing silent discover failures.
+        self.rxQ = asyncio.Queue()
+        self._pending_futures.clear()
         await self.setEvents(0,0,0,0,0)
         rdy = await self.gatewayReady()
         if rdy:
