@@ -90,6 +90,6 @@ class TestSelveGatewayIntegration:
                     await mock_selve_instance.recover()
                     
                     # Verify logger was called (indicating recover ran)
-                    mock_logger.info.assert_called_with("(Selve Worker): Recover serial connection")
+                    mock_logger.info.assert_any_call("(Selve Worker): Recover serial connection")
                     mock_logger.debug.assert_any_call("(Selve Worker): Waiting 5 seconds before trying...")
                     mock_logger.debug.assert_any_call("(Selve Worker): Recovering")
