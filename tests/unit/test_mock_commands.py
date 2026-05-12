@@ -72,9 +72,9 @@ class TestMockCommands(unittest.TestCase):
             # Check that the device state was updated
             self.assertEqual(self.commeo_device.state, MovementState.UP_ON)
             
-            # Check that device values were updated
-            self.selve.updateCommeoDeviceValuesAsync.assert_called_once_with(1)
-            
+            # updateCommeoDeviceValuesAsync is NOT called immediately; the poll loop handles updates
+            self.selve.updateCommeoDeviceValuesAsync.assert_not_called()
+
         self.loop.run_until_complete(test_async())
         
     def test_move_device_up_command_exception(self):
