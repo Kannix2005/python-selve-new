@@ -60,7 +60,8 @@ class TestSelveInit:
         selve = Selve()
         
         assert selve._port is None
-        assert selve._LOGGER is None
+        import logging
+        assert isinstance(selve._LOGGER, logging.Logger)
         assert selve.loop is None
         assert isinstance(selve._callbacks, set)
         assert isinstance(selve._eventCallbacks, set)
