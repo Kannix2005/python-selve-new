@@ -12,15 +12,19 @@ except ImportError:
         __version__ = "unknown"
 
 import asyncio
-import threading
 import time
 from collections import deque
 from itertools import chain
 from typing import Callable, Optional
 
-import serial
-from serial.tools import list_ports
-from serial import SerialException
+try:
+    from serial.tools import list_ports as _serial_list_ports
+    def _comports():
+        return _serial_list_ports.comports()
+except ImportError:
+    def _comports():  # type: ignore[misc]
+        return []
+
 import untangle
 
 from selve.commands import param, service
@@ -113,21 +117,21 @@ class Selve:
         # Kept for backward compatibility in tests/mocks.
         return True
 
-    def _build_transport(self, port: str):
+    async def _build_transport(self, port: str):
         self._transport = SerialTransport(port=port, logger=self._LOGGER)
-        self._transport.ensure_open()
-        self._serial = self._transport.serial
+        await self._transport.ensure_open()
+        self._serial = None
 
-    def _teardown_transport(self):
+    async def _teardown_transport(self):
         if self._transport:
-            self._transport.shutdown()
+            await self._transport.shutdown()
         self._transport = None
         self._serial = None
 
     async def _probe_port(self, port: str, fromConfigFlow: bool = False) -> bool:
         """Attempt to connect and verify a Selve gateway on the given port."""
         try:
-            self._build_transport(port)
+            await self._build_transport(port)
             ok = await self.pingGateway(fromConfigFlow=fromConfigFlow)
             if ok:
                 try:
@@ -142,13 +146,12 @@ class Selve:
             self._LOGGER.debug(f"Probe failed on {port}: {e}")
 
         await self.stopWorker()
-        self._teardown_transport()
+        await self._teardown_transport()
         return False
     
 
     def list_ports(self):
-        available_ports = list_ports.comports()
-        return available_ports
+        return _comports()
 
     async def check_port(self, port):
         if port is not None:
@@ -172,22 +175,14 @@ class Selve:
                             await self.discover()
                         await self.startWorker()
                     return
-            except (serial.SerialException, IOError) as e:
+            except (OSError, IOError) as e:
                 self._LOGGER.debug("Configured port not valid! " + str(e))
             except Exception as e:
                 self._LOGGER.error("Unknown exception: " + str(e))
 
 
-        if self.loop is not None:
-            # Use the current running loop to avoid "different loop" errors
-            try:
-                current_loop = asyncio.get_running_loop()
-                available_ports = await current_loop.run_in_executor(None, list_ports.comports)
-            except RuntimeError:
-                # No running loop, use the instance loop
-                available_ports = await self.loop.run_in_executor(None, list_ports.comports)
-        else:
-            available_ports = list_ports.comports()
+        loop = asyncio.get_running_loop()
+        available_ports = await loop.run_in_executor(None, _comports)
         
         self._LOGGER.debug("available comports: " + str(available_ports))
 
@@ -216,31 +211,22 @@ class Selve:
         await asyncio.sleep(5)
         self._LOGGER.debug("(Selve Worker): " + "Recovering")
 
-        self._teardown_transport()
+        await self._teardown_transport()
 
         if self._port is not None:
             try:
                 if await self._probe_port(self._port, fromConfigFlow=False):
                     if self.rxQ is not None and self._transport is not None:
-                        loop = self.loop or asyncio.get_running_loop()
-                        self._transport.start_reader(loop, self.rxQ)
+                        await self._transport.start_reader(self.rxQ)
                     return
-            except (serial.SerialException, IOError) as e:
+            except (OSError, IOError) as e:
                 self._LOGGER.debug("(Selve Worker): " + "Configured port not valid, maybe it has changed, trying other ports...")
             except Exception as e:
                 self._LOGGER.error("(Selve Worker): " + "Unknown exception: " + str(e))
 
-        if self.loop is not None:
-            # Use the current running loop to avoid "different loop" errors
-            try:
-                current_loop = asyncio.get_running_loop()
-                available_ports = await current_loop.run_in_executor(None, list_ports.comports)
-            except RuntimeError:
-                # No running loop, use the instance loop
-                available_ports = await self.loop.run_in_executor(None, list_ports.comports)
-        else:
-            available_ports = list_ports.comports()
-        
+        loop = asyncio.get_running_loop()
+        available_ports = await loop.run_in_executor(None, _comports)
+
         self._LOGGER.debug("(Selve Worker): " + "available comports: " + str(available_ports))
 
         if len(available_ports) == 0:
@@ -251,8 +237,7 @@ class Selve:
             try:
                 if await self._probe_port(p.device, fromConfigFlow=False):
                     if self.rxQ is not None and self._transport is not None:
-                        loop = self.loop or asyncio.get_running_loop()
-                        self._transport.start_reader(loop, self.rxQ)
+                        await self._transport.start_reader(self.rxQ)
                     return
             except Exception as e:
                 self._LOGGER.error("(Selve Worker): " + "Error at com port: " + str(e))
@@ -273,12 +258,11 @@ class Selve:
         if self._event_queue is None or not isinstance(self._event_queue, asyncio.Queue):
             self._event_queue = asyncio.Queue()
 
-        # Ensure transport and reader thread are running
-        loop = self.loop or asyncio.get_running_loop()
+        # Ensure transport and reader task are running
         if self._transport is None and self._port is not None:
-            self._build_transport(self._port)
+            await self._build_transport(self._port)
         if self._transport is not None:
-            self._transport.start_reader(loop, self.rxQ)
+            await self._transport.start_reader(self.rxQ)
 
         if self._tx_task is None or self._tx_task.done():
             self._tx_task = asyncio.create_task(self._tx_loop())
@@ -371,7 +355,7 @@ class Selve:
         self._dispatch_task = None
         self._pending_futures.clear()
         if self._transport:
-            self._transport.stop_reader()
+            await self._transport.stop_reader()
         if self._event_queue is not None:
             while not self._event_queue.empty():
                 try:
@@ -387,7 +371,7 @@ class Selve:
         self._LOGGER.debug("Preparing for termination")
         await self.stopWorker()
         # close the serial port, do the cleanup
-        self._teardown_transport()
+        await self._teardown_transport()
         return True
 
 
@@ -428,20 +412,20 @@ class Selve:
             if self._transport is None:
                 if self._port is None:
                     raise PortError("No serial port configured")
-                self._build_transport(self._port)
+                await self._build_transport(self._port)
 
             await self._transport.write(commandstr)
             # small pause to give the gateway time to answer
             await asyncio.sleep(0.1)
 
-        except (serial.SerialException, IOError) as se:
+        except (OSError, IOError) as se:
             self._LOGGER.info('Serial error, trying to reconnect once... ' + str(se))
             await self.recover()
 
             try:
                 self._LOGGER.debug('Trying again...')
                 if self._transport is None and self._port is not None:
-                    self._build_transport(self._port)
+                    await self._build_transport(self._port)
                 await self._transport.write(commandstr)
                 await asyncio.sleep(0.1)
             
@@ -1188,7 +1172,8 @@ class Selve:
         while await self.gatewayState() != ServiceState.READY:
             if time.time() - start_time >= 30:
                 self._LOGGER.info("Error: Gateway could not be reset or loads too long")
-            pass
+                break
+            await asyncio.sleep(0.1)
         self._LOGGER.info("Gateway reset")
 
     async def factoryResetGateway(self):
@@ -1201,7 +1186,8 @@ class Selve:
         while await self.gatewayState() != ServiceState.READY:
             if time.time() - start_time >= 60:
                 self._LOGGER.info("Error: Gateway could not be reset or loads too long")
-            pass
+                break
+            await asyncio.sleep(0.1)
         self._LOGGER.info("Gateway factory reset")
         return response.executed
 
