@@ -31,7 +31,7 @@ classifiers = [
 ]
 dependencies = [
     "requests",
-    "pyserial",
+    "serialx",
     "pybase64",
     "untangle",
     "nest_asyncio",
