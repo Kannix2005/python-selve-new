@@ -51,7 +51,7 @@ from selve.sensor import SelveSensor
 from selve.util import *
 from selve.util import Command
 from selve.util.errors import *
-from selve.util.protocol import ParameterType
+from selve.util.protocol import ParameterType, SelveTypes, MovementState
 from selve.util.serial_transport import SerialTransport
 
 
@@ -105,6 +105,9 @@ class Selve:
         self.rxQ = None
         self._pending_futures = deque()
         self._event_queue = None
+
+        # Active movement polling tasks keyed by device id
+        self._movement_tasks: dict = {}
 
         #Options
         self.reversedStopPosition = 0
@@ -1010,6 +1013,8 @@ class Selve:
             device.device_type = response.deviceType
 
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
+            if device.state == MovementState.STOPPED_OFF:
+                self._stop_movement_polling(device.id)
 
         if isinstance(response, SensorEventResponse):
             if self.is_id_registered(response.id, SelveTypes.SENSOR):
@@ -1387,6 +1392,8 @@ class Selve:
         dev.freezingAlarm = response.freezingAlarm if response.freezingAlarm else False
         dev.dayMode = response.dayMode if response.dayMode else False
         self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
+        if dev is not None and dev.state == MovementState.STOPPED_OFF:
+            self._stop_movement_polling(id)
 
     def setDeviceValue(self, id: int, value: int, type: SelveTypes):
         dev = self.getDevice(id, type)
@@ -1410,12 +1417,41 @@ class Selve:
         dev.state = state
         self.addOrUpdateDevice(dev, type)
 
+    def _start_movement_polling(self, device_id: int) -> None:
+        """Start a background task that polls device values every 0.5 s during movement."""
+        self._stop_movement_polling(device_id)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no running event loop (unit tests, etc.)
+        task = asyncio.create_task(self._movement_poll_loop(device_id))
+        self._movement_tasks[device_id] = task
+
+    def _stop_movement_polling(self, device_id: int) -> None:
+        """Cancel movement polling task for a device if one is active."""
+        task = self._movement_tasks.pop(device_id, None)
+        if task and not task.done():
+            task.cancel()
+
+    async def _movement_poll_loop(self, device_id: int, interval: float = 0.5, timeout: float = 60.0) -> None:
+        """Poll DeviceGetValues every *interval* seconds until movement stops or timeout."""
+        elapsed = 0.0
+        while not self._stopThread.is_set() and elapsed < timeout:
+            await asyncio.sleep(interval)
+            elapsed += interval
+            dev = self.getDevice(device_id, SelveTypes.DEVICE)
+            if dev is None or dev.state == MovementState.STOPPED_OFF:
+                break
+            await self.updateCommeoDeviceValuesAsync(device_id)
+        self._movement_tasks.pop(device_id, None)
+
     async def moveDeviceUp(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
             await self.executeCommand(CommandDriveUp(device.id, type))
             device.state = MovementState.UP_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             await self.updateCommeoDeviceValuesAsync(device.id)
+            self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
             await self.executeCommand(IveoManual(device.id, DriveCommandIveo.UP))
@@ -1429,6 +1465,7 @@ class Selve:
             device.state = MovementState.DOWN_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             await self.updateCommeoDeviceValuesAsync(device.id)
+            self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
             await self.executeCommand(IveoManual(device.id, DriveCommandIveo.DOWN))
@@ -1440,6 +1477,7 @@ class Selve:
         if device.communicationType is CommunicationType.COMMEO:
             await self.executeCommand(CommandDrivePos1(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
+            self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
             await self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS1))
@@ -1451,6 +1489,7 @@ class Selve:
         if device.communicationType is CommunicationType.COMMEO:
             await self.executeCommand(CommandDrivePos2(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
+            self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
             await self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS2))
@@ -1461,17 +1500,21 @@ class Selve:
     async def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
         await self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
         await self.updateCommeoDeviceValuesAsync(device.id)
+        self._start_movement_polling(device.id)
 
     async def moveDeviceStepUp(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
         await self.executeCommand(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
         await self.updateCommeoDeviceValuesAsync(device.id)
+        self._start_movement_polling(device.id)
 
     async def moveDeviceStepDown(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
         await self.executeCommand(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
         await self.updateCommeoDeviceValuesAsync(device.id)
+        self._start_movement_polling(device.id)
 
     async def stopDevice(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
+            self._stop_movement_polling(device.id)
             await self.executeCommand(CommandStop(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
