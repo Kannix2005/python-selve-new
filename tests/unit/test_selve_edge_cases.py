@@ -18,8 +18,9 @@ class TestSelveEdgeCases:
     def test_init_with_none_logger(self):
         """Test initialization with None logger."""
         selve = Selve(logger=None)
-        # None logger should result in None _LOGGER (implementation allows this)
-        assert selve._LOGGER is None
+        # None logger falls back to a module-level logger, never stays None
+        import logging
+        assert isinstance(selve._LOGGER, logging.Logger)
         
     def test_init_with_invalid_port(self):
         """Test initialization with invalid port."""
