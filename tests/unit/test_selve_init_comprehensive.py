@@ -6,7 +6,7 @@ Testing every function and method systematically for 100% coverage.
 import pytest
 import asyncio
 import logging
-import serial
+import serialx
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from selve import Selve
 from selve.util.errors import *

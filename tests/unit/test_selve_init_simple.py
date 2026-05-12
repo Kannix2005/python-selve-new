@@ -5,7 +5,7 @@ Tests are designed to be fast and not hang
 import pytest
 import asyncio
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
-import serial
+import serialx
 from selve import Selve
 from selve.util.errors import PortError, ErrorResponse
 from selve.util.protocol import ParameterType
