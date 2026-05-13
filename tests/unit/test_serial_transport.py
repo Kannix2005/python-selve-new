@@ -28,13 +28,18 @@ async def _collect(transport, reader, n_messages, timeout=2.0):
 
     task = asyncio.create_task(transport._reader_loop())
     messages = []
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
     try:
-        async with asyncio.timeout(timeout):
-            while len(messages) < n_messages:
-                msg = await q.get()
+        while len(messages) < n_messages:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            try:
+                msg = await asyncio.wait_for(q.get(), timeout=remaining)
                 messages.append(msg)
-    except (asyncio.TimeoutError, Exception):
-        pass
+            except asyncio.TimeoutError:
+                break
     finally:
         task.cancel()
         try:
