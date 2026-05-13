@@ -53,7 +53,7 @@ class SenSimCommandType(Enum):
     DRIVEUP = 1
     DRIVEDOWN = 2
     POSITION_1 = 3
-    POSITION_2 = 4
+    POSITION_2 = 5  # spec §6.11 senSim.drive: 4=SavePos1 is skipped, pos2=5
 
 class DriveCommandCommeo(Enum):
     STOP = 0
@@ -80,7 +80,7 @@ class DriveCommandIveo(Enum):
     UP = 1
     DOWN = 2
     POS1 = 3
-    POS2 = 5
+    POS2 = 4  # spec §11.11/11.12/11.13: iveo uses consecutive 0-4, not commeo numbering
     LEARNTELEGRAMSENT = 254
     TEACHTELEGRAMSENT = 255
 

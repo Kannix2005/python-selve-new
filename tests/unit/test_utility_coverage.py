@@ -93,7 +93,7 @@ class TestSelveUtilityClasses(unittest.TestCase):
         self.assertEqual(SenSimCommandType.DRIVEUP.value, 1)
         self.assertEqual(SenSimCommandType.DRIVEDOWN.value, 2)
         self.assertEqual(SenSimCommandType.POSITION_1.value, 3)
-        self.assertEqual(SenSimCommandType.POSITION_2.value, 4)
+        self.assertEqual(SenSimCommandType.POSITION_2.value, 5)
 
     def test_drive_command_commeo_enum(self):
         """Test DriveCommandCommeo enum values."""
@@ -123,7 +123,7 @@ class TestSelveUtilityClasses(unittest.TestCase):
         self.assertEqual(DriveCommandIveo.UP.value, 1)
         self.assertEqual(DriveCommandIveo.DOWN.value, 2)
         self.assertEqual(DriveCommandIveo.POS1.value, 3)
-        self.assertEqual(DriveCommandIveo.POS2.value, 5)
+        self.assertEqual(DriveCommandIveo.POS2.value, 4)
         self.assertEqual(DriveCommandIveo.LEARNTELEGRAMSENT.value, 254)
         self.assertEqual(DriveCommandIveo.TEACHTELEGRAMSENT.value, 255)
 
