@@ -14,6 +14,30 @@ _IDLE_TIMEOUT = 60.0
 _END_TAGS = (b"</methodResponse>", b"</methodCall>")
 
 
+def _extract_messages(buffer: bytes) -> tuple:
+    """Extract all complete XML messages from *buffer*.
+
+    Returns (messages, remaining_bytes) where *messages* is a list of decoded
+    strings and *remaining_bytes* is the unconsumed tail of the buffer.
+    """
+    messages: list = []
+    while True:
+        earliest_end = None
+        for tag in _END_TAGS:
+            pos = buffer.find(tag)
+            if pos >= 0:
+                end = pos + len(tag)
+                if earliest_end is None or end < earliest_end:
+                    earliest_end = end
+        if earliest_end is None:
+            break
+        msg = buffer[:earliest_end].decode(errors="ignore").strip()
+        buffer = buffer[earliest_end:]
+        if msg:
+            messages.append(msg)
+    return messages, buffer
+
+
 class SerialTransport:
     """Async serial transport using serialx (replaces pyserial + background thread)."""
 
@@ -140,25 +164,10 @@ class SerialTransport:
 
             buffer += chunk
 
-            # Extract all complete XML messages from the buffer
-            while True:
-                # Find the earliest closing tag
-                earliest_end = None
-                for tag in _END_TAGS:
-                    pos = buffer.find(tag)
-                    if pos >= 0:
-                        end = pos + len(tag)
-                        if earliest_end is None or end < earliest_end:
-                            earliest_end = end
-
-                if earliest_end is None:
-                    break
-
-                msg = buffer[:earliest_end].decode(errors="ignore").strip()
-                buffer = buffer[earliest_end:]
-
-                if msg and self._rx_queue:
-                    self._logger.debug("Serial RX: %s", msg)
+            new_messages, buffer = _extract_messages(buffer)
+            for msg in new_messages:
+                self._logger.debug("Serial RX: %s", msg)
+                if self._rx_queue:
                     await self._rx_queue.put(msg)
 
     async def write(self, payload: bytes) -> None:
