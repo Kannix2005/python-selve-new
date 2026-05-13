@@ -5,7 +5,13 @@ from typing import Optional
 import serialx
 from serialx import Parity
 
-_READLINE_TIMEOUT = 12.0  # seconds — gateway goes silent during RF motor ops
+# Any data chunk arriving within this window extends the deadline.
+# Only a truly dead/disconnected port triggers a reconnect.
+_IDLE_TIMEOUT = 60.0
+
+# The gateway protocol uses XML-RPC framing. Every message ends with one of
+# these two tags; there are no other root-level closing tags in the protocol.
+_END_TAGS = (b"</methodResponse>", b"</methodCall>")
 
 
 class SerialTransport:
@@ -49,7 +55,7 @@ class SerialTransport:
                 rtscts=False,
                 dsrdtr=False,
             )
-            self._logger.info("Serial: %s opened, reader=%r writer=%r", self._port, self._reader, self._writer)
+            self._logger.info("Serial: %s opened", self._port)
 
     async def close(self) -> None:
         self._logger.info("Serial: closing %s", self._port)
@@ -70,7 +76,7 @@ class SerialTransport:
         if self._reader_task and not self._reader_task.done():
             self._logger.info("Serial: reader task already running")
             return
-        self._logger.info("Serial: starting reader task, reader=%r", self._reader)
+        self._logger.info("Serial: starting reader task")
         self._reader_task = asyncio.create_task(
             self._reader_loop(), name="selve-serial-reader"
         )
@@ -87,28 +93,31 @@ class SerialTransport:
             self._logger.info("Serial: reader task stopped")
 
     async def _reader_loop(self) -> None:
-        self._logger.info("Serial: reader loop started, reader=%r at_eof=%s",
-                          self._reader,
-                          self._reader.at_eof() if self._reader else "N/A")
-        buffer = ""
-        iteration = 0
+        """Read raw bytes and dispatch complete XML messages by framing on closing tags.
+
+        Using read() instead of readline() avoids depending on \\n as a message
+        delimiter. The Selve protocol is XML-RPC: every gateway message ends with
+        either </methodResponse> or </methodCall>. We scan the byte buffer for
+        these tags and dispatch as soon as a complete message is available.
+
+        A 60-second idle timeout (no bytes at all) triggers a reconnect. This is
+        far more conservative than the old 12-second readline hack and only fires
+        when the serial port is truly dead.
+        """
+        self._logger.info("Serial: reader loop started")
+        buffer = b""
         while True:
             try:
-                if self._reader is None:
-                    self._logger.warning("Serial: reader is None in loop, reopening")
-                    await self.ensure_open()
-                self._logger.debug("Serial: awaiting readline (iter=%d, buf=%r)", iteration, buffer)
-                line_bytes = await asyncio.wait_for(
-                    self._reader.readline(), timeout=_READLINE_TIMEOUT
+                await self.ensure_open()
+                assert self._reader is not None
+                chunk = await asyncio.wait_for(
+                    self._reader.read(4096), timeout=_IDLE_TIMEOUT
                 )
-                self._logger.debug("Serial: readline returned %d bytes (iter=%d)", len(line_bytes), iteration)
-                iteration += 1
             except asyncio.TimeoutError:
                 self._logger.warning(
-                    "Serial: readline timeout after %.0fs (iter=%d, buf=%r) — reconnecting",
-                    _READLINE_TIMEOUT, iteration, buffer,
+                    "Serial: no data for %.0fs — reconnecting", _IDLE_TIMEOUT
                 )
-                buffer = ""
+                buffer = b""
                 await self.close()
                 await asyncio.sleep(1.0)
                 await self.ensure_open()
@@ -125,21 +134,32 @@ class SerialTransport:
                 await asyncio.sleep(1)
                 continue
 
-            if not line_bytes:
-                self._logger.debug("Serial: readline returned empty bytes (EOF?), reader.at_eof=%s",
-                                   self._reader.at_eof() if self._reader else "N/A")
+            if not chunk:
                 await asyncio.sleep(0.01)
                 continue
 
-            decoded = line_bytes.decode(errors="ignore").strip()
-            if decoded == "":
-                if buffer and self._rx_queue:
-                    self._logger.debug("Serial RX: %s", buffer)
-                    await self._rx_queue.put(buffer)
-                    buffer = ""
-                continue
+            buffer += chunk
 
-            buffer += decoded
+            # Extract all complete XML messages from the buffer
+            while True:
+                # Find the earliest closing tag
+                earliest_end = None
+                for tag in _END_TAGS:
+                    pos = buffer.find(tag)
+                    if pos >= 0:
+                        end = pos + len(tag)
+                        if earliest_end is None or end < earliest_end:
+                            earliest_end = end
+
+                if earliest_end is None:
+                    break
+
+                msg = buffer[:earliest_end].decode(errors="ignore").strip()
+                buffer = buffer[earliest_end:]
+
+                if msg and self._rx_queue:
+                    self._logger.debug("Serial RX: %s", msg)
+                    await self._rx_queue.put(msg)
 
     async def write(self, payload: bytes) -> None:
         await self.ensure_open()
