@@ -40,15 +40,6 @@ class MethodResponse:
         self.name = name
         self.parameters = parameters
 
-class CommeoCommandResult(MethodResponse):
-    def __init__(self, name, parameters):
-        super().__init__(name, parameters)
-        self.command = self.name
-        self.commandType = DeviceCommandType(int(parameters[1][1]))
-        self.executed = bool(parameters[2][1])
-        self.successIds = [ b for b in Util.true_in_list(Util.b64bytes_to_bitlist(parameters[3][1]))]
-        self.failedIds = [ b for b in Util.true_in_list(Util.b64bytes_to_bitlist(parameters[4][1]))]
-
 class CommeoDeviceEventResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
