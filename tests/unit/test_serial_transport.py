@@ -2,118 +2,110 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
-@pytest.fixture
-def transport(event_loop):
-    from selve.util.serial_transport import SerialTransport
-    t = SerialTransport(port="COM_TEST", logger=MagicMock())
-    return t
+from selve.util.serial_transport import _extract_messages
 
 
-def _make_reader(*chunks):
-    """Return an asyncio.StreamReader pre-loaded with the given byte chunks."""
-    reader = asyncio.StreamReader()
-    for c in chunks:
-        reader.feed_data(c)
-    reader.feed_eof()
-    return reader
+# ---------------------------------------------------------------------------
+# Pure synchronous tests for _extract_messages
+# ---------------------------------------------------------------------------
 
-
-async def _collect(transport, reader, n_messages, timeout=2.0):
-    """Run _reader_loop until n_messages are dispatched, then cancel."""
-    q = asyncio.Queue()
-    transport._reader = reader
-    transport._writer = MagicMock(is_closing=MagicMock(return_value=False))
-    transport._rx_queue = q
-
-    task = asyncio.create_task(transport._reader_loop())
-    messages = []
-    loop = asyncio.get_event_loop()
-    deadline = loop.time() + timeout
-    try:
-        while len(messages) < n_messages:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                break
-            try:
-                msg = await asyncio.wait_for(q.get(), timeout=remaining)
-                messages.append(msg)
-            except asyncio.TimeoutError:
-                break
-    finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-    return messages
-
-
-@pytest.mark.asyncio
-async def test_single_method_response(transport):
+def test_single_method_response():
     xml = b"<methodResponse><array><string>selve.GW.service.ping</string></array></methodResponse>"
-    reader = _make_reader(xml)
-    msgs = await _collect(transport, reader, 1)
+    msgs, remaining = _extract_messages(xml)
     assert len(msgs) == 1
     assert "</methodResponse>" in msgs[0]
     assert "selve.GW.service.ping" in msgs[0]
+    assert remaining == b""
 
 
-@pytest.mark.asyncio
-async def test_single_method_call(transport):
+def test_single_method_call():
     xml = b"<methodCall><methodName>selve.GW.event.device</methodName><array></array></methodCall>"
-    reader = _make_reader(xml)
-    msgs = await _collect(transport, reader, 1)
+    msgs, remaining = _extract_messages(xml)
     assert len(msgs) == 1
     assert "</methodCall>" in msgs[0]
     assert "event.device" in msgs[0]
+    assert remaining == b""
 
 
-@pytest.mark.asyncio
-async def test_two_messages_in_one_chunk(transport):
-    """Both a response and an event arriving in the same read() call."""
+def test_two_messages_in_one_chunk():
     chunk = (
         b"<methodResponse><array><string>selve.GW.service.ping</string></array></methodResponse>"
         b"<methodCall><methodName>selve.GW.event.dutyCycle</methodName><array></array></methodCall>"
     )
-    reader = _make_reader(chunk)
-    msgs = await _collect(transport, reader, 2)
+    msgs, remaining = _extract_messages(chunk)
     assert len(msgs) == 2
     assert any("methodResponse" in m for m in msgs)
     assert any("methodCall" in m for m in msgs)
+    assert remaining == b""
 
 
-@pytest.mark.asyncio
-async def test_message_split_across_chunks(transport):
-    """Message split at an arbitrary byte boundary."""
+def test_incomplete_message_stays_in_buffer():
+    partial = b"<methodResponse><array><string>selve.GW.service.ping</string></array>"
+    msgs, remaining = _extract_messages(partial)
+    assert msgs == []
+    assert remaining == partial
+
+
+def test_message_split_across_chunks():
     xml = b"<methodResponse><array><string>selve.GW.service.ping</string></array></methodResponse>"
     mid = len(xml) // 2
-    reader = _make_reader(xml[:mid], xml[mid:])
-    msgs = await _collect(transport, reader, 1)
-    assert len(msgs) == 1
-    assert "</methodResponse>" in msgs[0]
+    # First chunk: no complete message yet
+    msgs1, buf = _extract_messages(xml[:mid])
+    assert msgs1 == []
+    # Second chunk completes the message
+    msgs2, remaining = _extract_messages(buf + xml[mid:])
+    assert len(msgs2) == 1
+    assert "</methodResponse>" in msgs2[0]
+    assert remaining == b""
 
 
-@pytest.mark.asyncio
-async def test_xml_preamble_is_included(transport):
-    """Gateway sometimes prefixes messages with a (malformed) XML declaration."""
+def test_xml_preamble_included_in_message():
     xml = (
         b'<?xml version="1.0"? encoding="UTF-8">'
         b"<methodResponse><array><string>selve.GW.service.ping</string></array></methodResponse>"
     )
-    reader = _make_reader(xml)
-    msgs = await _collect(transport, reader, 1)
+    msgs, remaining = _extract_messages(xml)
     assert len(msgs) == 1
     assert "methodResponse" in msgs[0]
 
 
+def test_garbage_before_message_is_included():
+    """Leading whitespace/garbage bytes before the opening tag stay in the message."""
+    xml = b"\r\n  <methodResponse><array></array></methodResponse>"
+    msgs, remaining = _extract_messages(xml)
+    assert len(msgs) == 1
+    assert "methodResponse" in msgs[0]
+
+
+def test_empty_buffer():
+    msgs, remaining = _extract_messages(b"")
+    assert msgs == []
+    assert remaining == b""
+
+
+def test_fault_response_uses_method_response_tag():
+    """Fault responses are wrapped in <methodResponse>, same closing tag."""
+    xml = b"<methodResponse><fault><array><string>Error</string><int>-1</int></array></fault></methodResponse>"
+    msgs, remaining = _extract_messages(xml)
+    assert len(msgs) == 1
+    assert "fault" in msgs[0]
+    assert remaining == b""
+
+
+# ---------------------------------------------------------------------------
+# Async test: idle timeout triggers reconnect
+# ---------------------------------------------------------------------------
+
 @pytest.mark.asyncio
-async def test_idle_timeout_triggers_reconnect(transport):
-    """If no data arrives for _IDLE_TIMEOUT seconds, the transport reconnects."""
-    from selve.util import serial_transport as st
+async def test_idle_timeout_triggers_reconnect():
+    """If no data arrives for _IDLE_TIMEOUT seconds, close+ensure_open are called."""
+    import selve.util.serial_transport as st
+    from selve.util.serial_transport import SerialTransport
 
-    reader = asyncio.StreamReader()  # never feeds data → triggers timeout
+    transport = SerialTransport(port="COM_TEST", logger=MagicMock())
 
+    # Reader that never produces data (simulates dead port)
+    reader = asyncio.StreamReader()
     transport._reader = reader
     transport._writer = MagicMock(is_closing=MagicMock(return_value=False))
     transport._rx_queue = asyncio.Queue()
@@ -134,18 +126,18 @@ async def test_idle_timeout_triggers_reconnect(transport):
     transport.close = fake_close
     transport.ensure_open = fake_ensure
 
-    original_timeout = st._IDLE_TIMEOUT
+    original = st._IDLE_TIMEOUT
     st._IDLE_TIMEOUT = 0.05
     try:
         task = asyncio.create_task(transport._reader_loop())
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.25)
         task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
     finally:
-        st._IDLE_TIMEOUT = original_timeout
+        st._IDLE_TIMEOUT = original
 
-    assert len(close_calls) >= 1, "close() should have been called on idle timeout"
-    assert len(ensure_calls) >= 1, "ensure_open() should have been called after reconnect"
+    assert len(close_calls) >= 1, "close() should be called on idle timeout"
+    assert len(ensure_calls) >= 1, "ensure_open() should be called after reconnect"
