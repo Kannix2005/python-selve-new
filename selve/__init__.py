@@ -1106,9 +1106,9 @@ class Selve:
                     dev.state = MovementState.UP_ON
                 elif response.command is DriveCommandCommeo.STOP:
                     dev.state = MovementState.STOPPED_OFF
-                elif response.command is DriveCommandCommeo.DRIVESTEPDOWN:
+                elif response.command is DriveCommandCommeo.STEPDOWN:
                     dev.state = MovementState.DOWN_ON
-                elif response.command is DriveCommandCommeo.DRIVESTEPUP:
+                elif response.command is DriveCommandCommeo.STEPUP:
                     dev.state = MovementState.UP_ON
                 self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
             for id in response.failedIds:
