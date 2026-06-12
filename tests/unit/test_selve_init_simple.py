@@ -18,7 +18,7 @@ class TestSelveInitSimple:
         """Test basic Selve initialization"""
         selve = Selve(port=None, discover=False, develop=False, logger=Mock())
         assert selve._port is None
-        assert selve._callbacks == set()
+        assert selve._callbacks == {}
         assert selve._eventCallbacks == set()
         assert selve.utilization == 0
         assert len(selve.devices) == 6

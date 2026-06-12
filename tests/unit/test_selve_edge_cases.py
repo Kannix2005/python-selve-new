@@ -176,7 +176,7 @@ class TestSelveEdgeCases:
         # Check data structures - txQ might be None initially
         assert selve.txQ is None or isinstance(selve.txQ, list)
         assert isinstance(selve.devices, dict)
-        assert isinstance(selve._callbacks, set)
+        assert isinstance(selve._callbacks, dict)
         assert isinstance(selve._eventCallbacks, set)
         
     def test_serial_attribute_handling(self):

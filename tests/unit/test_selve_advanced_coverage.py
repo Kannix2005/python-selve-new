@@ -58,7 +58,7 @@ class TestSelveAdvancedCoverage(unittest.TestCase):
         gateway = Selve(logger=self.mock_logger)
         
         # Test that error callbacks are properly initialized
-        self.assertIsInstance(gateway._callbacks, set)
+        self.assertIsInstance(gateway._callbacks, dict)
         self.assertIsInstance(gateway._eventCallbacks, set)
         
         # Test device container structure

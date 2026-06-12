@@ -99,7 +99,7 @@ class TestSelveCoreClasses(unittest.TestCase):
         self.assertEqual(len(gateway._callbacks), 0)
         self.assertEqual(len(gateway._eventCallbacks), 0)
 
-        self.assertIsInstance(gateway._callbacks, set)
+        self.assertIsInstance(gateway._callbacks, dict)
         self.assertIsInstance(gateway._eventCallbacks, set)
 
     def test_state_properties(self):

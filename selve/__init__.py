@@ -12,6 +12,7 @@ except ImportError:
         __version__ = "unknown"
 
 import asyncio
+import inspect
 import logging
 import time
 from collections import deque
@@ -60,7 +61,8 @@ class Selve:
 
     def __init__(self, port=None, discover=True, develop=False, logger=None, loop=None):
         # Gateway state
-        self._callbacks = set()
+        # callback -> whether it accepts the changed device as argument
+        self._callbacks: dict = {}
         self._eventCallbacks = set()
         self.lastLogEvent = None
         self.state = None
@@ -301,6 +303,17 @@ class Selve:
                     self._pending_futures.append(future)
 
                 await self._sendCommandToGateway(command)
+
+                if future is not None:
+                    # Pace transmissions by the response instead of a fixed
+                    # delay: the gateway answers in order, so the next command
+                    # may go out as soon as this one's response has arrived.
+                    # A timeout keeps a lost response from stalling the queue.
+                    await asyncio.wait({future}, timeout=5)
+                else:
+                    # Fire-and-forget commands still produce a gateway reply;
+                    # keep a small gap so the gateway is not flooded.
+                    await asyncio.sleep(0.05)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -325,17 +338,13 @@ class Selve:
             try:
                 resp = await self.processResponse(msg)
                 if isinstance(resp, ErrorResponse):
-                    resp = False
-
-                if resp not in (False, True, None):
-                    while self._pending_futures:
-                        fut = self._pending_futures.popleft()
-                        if fut.cancelled():
-                            continue
-                        if not fut.done():
-                            fut.set_result(resp)
-                            break
-                    else:
+                    # A fault is the gateway's reply to a command: resolve the
+                    # waiting future with False right away instead of letting
+                    # the caller run into its 10s timeout.
+                    if not self._resolve_next_future(False):
+                        self._LOGGER.debug("(Selve RX): error response without pending future -> %s", resp)
+                elif resp not in (False, True, None):
+                    if not self._resolve_next_future(resp):
                         self._LOGGER.debug("(Selve RX): response without pending future -> %s", resp)
                 self.rxQ.task_done()
             except Exception as e:
@@ -345,6 +354,17 @@ class Selve:
                 except Exception:
                     pass
 
+
+    def _resolve_next_future(self, result):
+        """Resolve the oldest pending command future with the given result."""
+        while self._pending_futures:
+            fut = self._pending_futures.popleft()
+            if fut.cancelled():
+                continue
+            if not fut.done():
+                fut.set_result(result)
+                return True
+        return False
 
     async def stopWorker(self):
         self._LOGGER.debug("Stopping worker")
@@ -386,13 +406,37 @@ class Selve:
         return True
 
 
-    def register_callback(self, callback: Callable[[], None]) -> None:
-        """Register callback, called when Roller changes state."""
-        self._callbacks.add(callback)
+    def register_callback(self, callback: Callable) -> None:
+        """Register callback, called when a device changes state.
 
-    def remove_callback(self, callback: Callable[[], None]) -> None:
+        The callback may optionally accept the changed device as its single
+        positional argument; parameterless callbacks keep working and are
+        invoked without arguments.
+        """
+        accepts_device = True
+        try:
+            inspect.signature(callback).bind(None)
+        except TypeError:
+            accepts_device = False
+        except ValueError:
+            # Builtins without introspectable signature: assume no args
+            accepts_device = False
+        self._callbacks[callback] = accepts_device
+
+    def remove_callback(self, callback: Callable) -> None:
         """Remove previously registered callback."""
-        self._callbacks.discard(callback)
+        self._callbacks.pop(callback, None)
+
+    def _fire_callbacks(self, device=None) -> None:
+        """Notify registered callbacks, passing the changed device if known."""
+        for callback, accepts_device in list(self._callbacks.items()):
+            try:
+                if accepts_device:
+                    callback(device)
+                else:
+                    callback()
+            except Exception:
+                self._LOGGER.exception("Error in update callback")
 
     def register_event_callback(self, callback: Callable[[], None]) -> None:
         """Register callback, called when other events take place."""
@@ -418,7 +462,7 @@ class Selve:
 
     async def _sendCommandToGateway(self, command: Command):
         commandstr = command.serializeToXML()
-        self._LOGGER.debug('Gateway writing: ' + str(commandstr))
+        self._LOGGER.debug('Gateway writing: %s', commandstr)
         try:
             if self._transport is None:
                 if self._port is None:
@@ -426,11 +470,9 @@ class Selve:
                 await self._build_transport(self._port)
 
             await self._transport.write(commandstr)
-            # small pause to give the gateway time to answer
-            await asyncio.sleep(0.1)
 
         except (OSError, IOError) as se:
-            self._LOGGER.info('Serial error, trying to reconnect once... ' + str(se))
+            self._LOGGER.info('Serial error, trying to reconnect once... %s', se)
             await self.recover()
 
             try:
@@ -438,13 +480,12 @@ class Selve:
                 if self._transport is None and self._port is not None:
                     await self._build_transport(self._port)
                 await self._transport.write(commandstr)
-                await asyncio.sleep(0.1)
-            
+
             except Exception as e:
-                self._LOGGER.error("error communicating: " + str(e) + " ; Please restart the integration!")
+                self._LOGGER.error("error communicating: %s ; Please restart the integration!", e)
 
         except Exception as e:
-            self._LOGGER.error("error communicating: " + str(e) + " ; Please restart the integration!")
+            self._LOGGER.error("error communicating: %s ; Please restart the integration!", e)
 
     async def processResponse(self, xmlstr):
         """Processes an XML String into a response object. Returns False if something went wrong or the gateway returned an error."""
@@ -453,11 +494,13 @@ class Selve:
         # return the ready to eat response
 
         # The selve device sometimes answers a badformed header. This is a patch
-        xmlstr = str(xmlstr).replace('<?xml version="1.0"? encoding="UTF-8">', '<?xml version="1.0" encoding="UTF-8"?>')
+        xmlstr = str(xmlstr)
+        if '<?xml version="1.0"? encoding="UTF-8">' in xmlstr:
+            xmlstr = xmlstr.replace('<?xml version="1.0"? encoding="UTF-8">', '<?xml version="1.0" encoding="UTF-8"?>')
         try:
             res = untangle.parse(xmlstr)
         except Exception as e:
-            self._LOGGER.error("Error in XML: " + str(e) + " : " + xmlstr)
+            self._LOGGER.error("Error in XML: %s : %s", e, xmlstr)
             return False
         try:
             if not hasattr(res, 'methodResponse') and not hasattr(res, 'methodCall'):
@@ -492,16 +535,14 @@ class Selve:
             if isinstance(response, SenderTeachResultResponse) \
                 or isinstance(response, SensorTeachResultResponse)\
                 or isinstance(response, DeviceScanResultResponse):
-                self.processTeachResponse(response)
+                await self.processTeachResponse(response)
                 return True
 
-            for callback in self._callbacks:
-                callback()
             return response
 
 
         except Exception as e:
-            self._LOGGER.error("Error in response processing: " + str(e) + " : " + xmlstr)
+            self._LOGGER.error("Error in response processing: %s : %s", e, xmlstr)
             return False
 
     def create_error(self, obj):
@@ -901,13 +942,13 @@ class Selve:
 
 
     async def updateAllDevices(self):
-        for device in self.devices[SelveTypes.DEVICE.value]:
+        for device in list(self.devices[SelveTypes.DEVICE.value].values()):
             await self.updateCommeoDeviceValues(device.id)
-        for sensor in self.devices[SelveTypes.SENSOR.value]:
+        for sensor in list(self.devices[SelveTypes.SENSOR.value].values()):
             await self.updateSensorValuesAsync(sensor.id)
-        for senSim in self.devices[SelveTypes.SENSIM.value]:
+        for senSim in list(self.devices[SelveTypes.SENSIM.value].values()):
             await self.updateSenSimValuesAsync(senSim.id)
-        for sender in self.devices[SelveTypes.SENDER.value]:
+        for sender in list(self.devices[SelveTypes.SENDER.value].values()):
             await self.updateSenderValuesAsync(sender.id)
 
 
@@ -917,8 +958,7 @@ class Selve:
         # add in gateway
 
         # if there is a callback for updates, call it
-        for callback in self._callbacks:
-            callback()
+        self._fire_callbacks(device)
 
     def getDevice(self, id: int, type: SelveTypes) -> SelveDevice | SelveSensor | SelveSender | SelveGroup | SelveSenSim | None:
         if id in self.devices[type.value]:
@@ -1057,7 +1097,7 @@ class Selve:
 
             sender.lastEvent = response.event
             sender.name = response.senderName
-            self.addOrUpdateDevice(sender, SelveTypes.SENSOR)
+            self.addOrUpdateDevice(sender, SelveTypes.SENDER)
 
         if isinstance(response, LogEventResponse):
             self.lastLogEvent = response
@@ -1117,9 +1157,6 @@ class Selve:
                     continue
                 dev.unreachable = True
                 self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
-
-        for callback in self._callbacks:
-            callback()
 
 
     ### Service
