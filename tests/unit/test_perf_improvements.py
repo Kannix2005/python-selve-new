@@ -192,3 +192,68 @@ async def test_update_all_devices_iterates_device_objects():
 
     await selve.updateAllDevices()
     selve.updateCommeoDeviceValues.assert_awaited_once_with(3)
+
+
+@pytest.mark.asyncio
+async def test_keepalive_pings_when_idle():
+    """With no RX activity the keepalive loop must ping the gateway."""
+    selve = _make_selve()
+    selve._keepalive_interval = 0.05
+    selve._last_rx = time.monotonic() - 100
+    pings = []
+
+    async def fake_exec(cmd):
+        pings.append(cmd)
+        selve._last_rx = time.monotonic() - 100  # stay "idle"
+        return True
+
+    selve._executeCommandSyncWithResponse = fake_exec
+
+    task = asyncio.create_task(selve._keepalive_loop())
+    try:
+        await asyncio.sleep(0.2)
+    finally:
+        selve._stopThread.set()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert len(pings) >= 1
+    from selve.commands.service import ServicePing
+    assert all(isinstance(p, ServicePing) for p in pings)
+
+
+@pytest.mark.asyncio
+async def test_keepalive_does_not_ping_when_link_active():
+    """Recent RX activity must suppress the keepalive ping."""
+    selve = _make_selve()
+    selve._keepalive_interval = 0.05
+    pings = []
+
+    async def fake_exec(cmd):
+        pings.append(cmd)
+        return True
+
+    selve._executeCommandSyncWithResponse = fake_exec
+
+    async def keep_fresh():
+        while True:
+            selve._last_rx = time.monotonic()
+            await asyncio.sleep(0.01)
+
+    task = asyncio.create_task(selve._keepalive_loop())
+    fresh = asyncio.create_task(keep_fresh())
+    try:
+        await asyncio.sleep(0.2)
+    finally:
+        selve._stopThread.set()
+        for t in (task, fresh):
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+
+    assert pings == []

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.13] - 2026-06-12
+
+### Added
+- **Idle keepalive**: when no data has arrived for 30s, the worker now sends a `ServicePing` to the gateway. The serial reader's 60s idle-reconnect previously tore down a perfectly healthy but quiet link every minute (logging a WARNING each time and silently dropping unsolicited gateway events — e.g. covers moved via physical remote — during the ~1s close/reopen window). With the keepalive the idle-reconnect only fires when the port is actually dead, which is what it was meant for.
+
 ## [2.5.12] - 2026-06-12
 
 ### Changed

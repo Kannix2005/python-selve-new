@@ -55,6 +55,11 @@ from selve.util.errors import *
 from selve.util.protocol import ParameterType, SelveTypes, MovementState
 from selve.util.serial_transport import SerialTransport
 
+# Ping the gateway when no data has arrived for this long. Must be shorter
+# than the serial transport's 60s idle-reconnect so a healthy but quiet link
+# never gets torn down (reconnect windows would drop unsolicited events).
+_KEEPALIVE_INTERVAL = 30.0
+
 
 class Selve:
     """Implementation of the serial communication to the Selve Gateway"""
@@ -107,6 +112,12 @@ class Selve:
         self.rxQ = None
         self._pending_futures = deque()
         self._event_queue = None
+
+        # Keepalive: ping the gateway when the link has been idle so the
+        # serial reader's idle-reconnect only fires on a truly dead port.
+        self._keepalive_task = None
+        self._keepalive_interval = _KEEPALIVE_INTERVAL
+        self._last_rx = 0.0
 
         # Active movement polling tasks keyed by device id
         self._movement_tasks: dict = {}
@@ -283,6 +294,10 @@ class Selve:
         if self._dispatch_task is None or self._dispatch_task.done():
             self._dispatch_task = asyncio.create_task(self._dispatch_loop())
 
+        if self._keepalive_task is None or self._keepalive_task.done():
+            self._last_rx = time.monotonic()
+            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+
         # Maintain legacy attribute name for compatibility
         self.workerTask = self._tx_task
 
@@ -327,6 +342,29 @@ class Selve:
                     pass
 
 
+    async def _keepalive_loop(self):
+        """Ping the gateway when the link has been idle.
+
+        The serial reader reconnects after 60s without data, but an idle link
+        is normal for a gateway with no traffic. The ping response keeps the
+        link verifiably alive, so the reader's idle-reconnect (which drops
+        unsolicited events during its close/reopen window) only fires when
+        the port is actually dead.
+        """
+        self._LOGGER.debug("(Selve keepalive): loop started")
+        while not self._stopThread.is_set():
+            try:
+                await asyncio.sleep(self._keepalive_interval)
+                if self._stopThread.is_set():
+                    break
+                if time.monotonic() - self._last_rx < self._keepalive_interval:
+                    continue
+                await self._executeCommandSyncWithResponse(ServicePing())
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self._LOGGER.debug("(Selve keepalive): error %s", e)
+
     async def _dispatch_loop(self):
         self._LOGGER.debug("(Selve RX): dispatcher started")
         while not self._stopThread.is_set():
@@ -334,6 +372,7 @@ class Selve:
                 msg = await self.rxQ.get()
             except asyncio.CancelledError:
                 break
+            self._last_rx = time.monotonic()
 
             try:
                 resp = await self.processResponse(msg)
@@ -370,7 +409,7 @@ class Selve:
         self._LOGGER.debug("Stopping worker")
         self._pauseWorker.set()
         self._stopThread.set()
-        tasks = [self._tx_task, self._dispatch_task]
+        tasks = [self._tx_task, self._dispatch_task, self._keepalive_task]
         for task in tasks:
             if task is None:
                 continue
@@ -384,6 +423,7 @@ class Selve:
         self.workerTask = None
         self._tx_task = None
         self._dispatch_task = None
+        self._keepalive_task = None
         self._pending_futures.clear()
         if self._transport:
             await self._transport.stop_reader()
