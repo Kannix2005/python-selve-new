@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.12] - 2026-06-12
+
+### Changed
+- **Response-paced command transmission**: the TX loop now waits for the previous command's response (with a 5s safety timeout) instead of sleeping a fixed 100ms after every serial write. Command round-trips drop from ~130ms to gateway speed (~30-40ms); full device discovery is roughly 3x faster. Verified against live gateway hardware.
+- **Device-aware update callbacks**: `register_callback` callbacks may now accept the changed device as a single positional argument, so consumers can update only the affected entity. Parameterless callbacks keep working unchanged. Callbacks are now fired only when a device actually changed (from `addOrUpdateDevice`), no longer after every gateway response, and a failing callback no longer breaks the dispatch of the remaining ones.
+- Hot-path logging now uses lazy `%s` formatting; the malformed-XML-header workaround only runs when the broken header is actually present.
+
+### Fixed
+- **Gateway error responses stalled callers for 10s**: a fault reply from the gateway never resolved the pending command future, so `executeCommandSyncWithResponse` always ran into its full 10s timeout (and another 10s on retry). Error responses now resolve the waiting future with `False` immediately.
+- `updateAllDevices()` crashed with `AttributeError`: it iterated dict keys (ints) instead of device objects.
+- `processTeachResponse` was called without `await`, so teach/scan result processing (including the event callback and event queue delivery) never actually ran.
+- Sender events were stored into the sensor device registry (`SelveTypes.SENSOR` instead of `SelveTypes.SENDER`), overwriting sensors that shared the same id.
+
 ## [2.5.0] - 2026-02-11
 
 ### Added

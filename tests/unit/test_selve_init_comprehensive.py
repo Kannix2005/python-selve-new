@@ -47,7 +47,7 @@ class TestSelveInit:
         assert selve._port == "COM5"
         assert selve._LOGGER == logger
         assert selve.loop == loop
-        assert isinstance(selve._callbacks, set)
+        assert isinstance(selve._callbacks, dict)
         assert isinstance(selve._eventCallbacks, set)
         assert selve.utilization == 0
         assert selve.sendingBlocked == DutyMode.NOT_BLOCKED
@@ -63,7 +63,7 @@ class TestSelveInit:
         import logging
         assert isinstance(selve._LOGGER, logging.Logger)
         assert selve.loop is None
-        assert isinstance(selve._callbacks, set)
+        assert isinstance(selve._callbacks, dict)
         assert isinstance(selve._eventCallbacks, set)
 
     def test_init_devices_structure(self):
