@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.14] - 2026-06-17
+
+### Added
+- **IVEO reliability**: IVEO is a one-way protocol — the motor never acknowledges, so a single lost RF telegram is a silent failure (shutter stays put while HA shows it moved). Drive commands for IVEO devices now:
+  - **repeat the telegram** like a physical handsender (`iveoRepeat`, default 3, spaced by `iveoRepeatDelay`=0.7s; both tunable via `updateOptions()`). The spacing is deliberately wider than the gateway's RF send window — a too-tight repeat overwrites the still-in-progress telegram (gateway logs "IVEO: Command overwritten") and collapses the retries into one burst instead of discrete attempts; verified against hardware that 0.15s overwrites and ≥0.3s is clean,
+  - **evaluate the gateway's `executed` acknowledgement** (previously discarded by the fire-and-forget path) and log a warning when the gateway could not transmit, and
+  - **guard against the 868 MHz duty cycle**: before each send the worker waits up to 5s for `sendingBlocked` to clear instead of firing into an exhausted duty cycle that the gateway would silently drop. `sendingBlocked`/`utilization` were tracked but never checked before.
+
+  COMMEO drive commands are unchanged — COMMEO has a return channel (`CommandResultResponse` + movement polling) that already surfaces failures.
+
 ## [2.5.13] - 2026-06-12
 
 ### Added

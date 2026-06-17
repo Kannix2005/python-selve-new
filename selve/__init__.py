@@ -60,6 +60,22 @@ from selve.util.serial_transport import SerialTransport
 # never gets torn down (reconnect windows would drop unsolicited events).
 _KEEPALIVE_INTERVAL = 30.0
 
+# IVEO is a one-way protocol: the motor never reports back, so a lost RF
+# telegram is a silent failure. Like a physical handsender we repeat each
+# telegram a few times to improve the odds it is received.
+#
+# The delay between repeats must exceed the gateway's RF transmission window,
+# otherwise a repeat overwrites the still-in-progress telegram (the gateway
+# logs "IVEO: Command overwritten") and the repeats collapse into one
+# continuous burst instead of discrete retry attempts. Measured against real
+# hardware: a 0.15s gap overwrites, >=0.3s is clean; 0.7s keeps a safe margin.
+_IVEO_REPEAT = 3
+_IVEO_REPEAT_DELAY = 0.7
+
+# How long to wait for the 868 MHz duty cycle to recover before giving up on
+# a send. The gateway pushes DutyCycleResponse events as airtime frees up.
+_DUTY_CYCLE_WAIT = 5.0
+
 
 class Selve:
     """Implementation of the serial communication to the Selve Gateway"""
@@ -124,6 +140,11 @@ class Selve:
 
         #Options
         self.reversedStopPosition = 0
+        # IVEO reliability: how often a one-way telegram is repeated, and the
+        # gap between repeats (must exceed the gateway's RF send window — see
+        # _IVEO_REPEAT_DELAY). Tunable via updateOptions().
+        self.iveoRepeat = _IVEO_REPEAT
+        self.iveoRepeatDelay = _IVEO_REPEAT_DELAY
 
         #Logger
         self._LOGGER: logging.Logger = logger or logging.getLogger(__name__)
@@ -496,8 +517,12 @@ class Selve:
             yield evt
 
 
-    def updateOptions(self, reversedStopPosition = 0):
+    def updateOptions(self, reversedStopPosition = 0, iveoRepeat = None, iveoRepeatDelay = None):
         self.reversedStopPosition = reversedStopPosition
+        if iveoRepeat is not None:
+            self.iveoRepeat = iveoRepeat
+        if iveoRepeatDelay is not None:
+            self.iveoRepeatDelay = iveoRepeatDelay
 
 
     async def _sendCommandToGateway(self, command: Command):
@@ -1541,6 +1566,60 @@ class Selve:
         finally:
             self._movement_tasks.pop(device_id, None)
 
+    async def _await_duty_cycle(self, timeout: float = _DUTY_CYCLE_WAIT) -> bool:
+        """Wait until the gateway reports the RF duty cycle is no longer blocked.
+
+        The 868 MHz band has a ~1% airtime limit; once exhausted the gateway
+        silently drops further telegrams. The gateway pushes DutyCycleResponse
+        events as the budget recovers, which keep ``self.sendingBlocked``
+        current. Returns True if sending is allowed, False if still blocked
+        after *timeout* seconds.
+        """
+        if self.sendingBlocked != DutyMode.BLOCKED:
+            return True
+        self._LOGGER.warning(
+            "Duty cycle blocked (utilization %s) — waiting up to %.0fs before sending",
+            self.utilization, timeout,
+        )
+        start = time.monotonic()
+        while time.monotonic() - start < timeout:
+            await asyncio.sleep(0.25)
+            if self.sendingBlocked != DutyMode.BLOCKED:
+                return True
+        return False
+
+    async def _send_iveo_command(self, actor_id: int, command: DriveCommandIveo) -> bool:
+        """Send an IVEO manual drive command reliably.
+
+        IVEO is one-way — the motor never acknowledges — so a single lost
+        telegram is a silent failure. We repeat the telegram like a physical
+        handsender and use the gateway's ``executed`` flag (the only feedback
+        available) to detect when the gateway itself could not transmit, e.g.
+        because the duty cycle is exhausted. Returns True if the gateway
+        confirmed at least one transmission.
+        """
+        confirmed = False
+        repeats = max(1, self.iveoRepeat)
+        for attempt in range(repeats):
+            if not await self._await_duty_cycle():
+                self._LOGGER.warning(
+                    "IVEO actor %s: duty cycle still blocked, skipping remaining sends",
+                    actor_id,
+                )
+                break
+            resp = await self._executeCommandSyncWithResponse(IveoManual(actor_id, command))
+            if getattr(resp, "executed", False):
+                confirmed = True
+            if attempt < repeats - 1:
+                await asyncio.sleep(self.iveoRepeatDelay)
+        if not confirmed:
+            self._LOGGER.warning(
+                "IVEO actor %s command %s: gateway did not confirm transmission "
+                "(one-way protocol — shutter may not have moved)",
+                actor_id, getattr(command, "name", command),
+            )
+        return confirmed
+
     async def moveDeviceUp(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
             await self.executeCommand(CommandDriveUp(device.id, type))
@@ -1549,7 +1628,7 @@ class Selve:
             self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.UP))
+            await self._send_iveo_command(device.id, DriveCommandIveo.UP)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 0, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 0, SelveTypes.IVEO)
@@ -1562,7 +1641,7 @@ class Selve:
             self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.DOWN))
+            await self._send_iveo_command(device.id, DriveCommandIveo.DOWN)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 100, SelveTypes.IVEO)
@@ -1573,7 +1652,7 @@ class Selve:
             self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS1))
+            await self._send_iveo_command(device.id, DriveCommandIveo.POS1)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 66, SelveTypes.IVEO)
@@ -1584,7 +1663,7 @@ class Selve:
             self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.POS2))
+            await self._send_iveo_command(device.id, DriveCommandIveo.POS2)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 33, SelveTypes.IVEO)
@@ -1611,7 +1690,7 @@ class Selve:
             await self.executeCommand(CommandStop(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
-            await self.executeCommand(IveoManual(device.id, DriveCommandIveo.STOP))
+            await self._send_iveo_command(device.id, DriveCommandIveo.STOP)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.setDeviceValue(device.id, 50, SelveTypes.IVEO)
             self.setDeviceTargetValue(device.id, 50, SelveTypes.IVEO)
