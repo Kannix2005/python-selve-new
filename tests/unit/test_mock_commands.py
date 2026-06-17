@@ -131,22 +131,27 @@ class TestMockCommands(unittest.TestCase):
         self.selve.setDeviceState = MagicMock()
         self.selve.setDeviceValue = MagicMock()
         self.selve.setDeviceTargetValue = MagicMock()
-        
+        # IVEO now repeats the telegram and checks the gateway 'executed' ack
+        self.selve.iveoRepeat = 1
+        self.selve._executeCommandSyncWithResponse = AsyncMock(
+            return_value=MagicMock(executed=True)
+        )
+
         # Run the test
         async def test_async():
             await self.selve.moveDeviceDown(self.iveo_device)
-            
-            # Check that the command was sent
-            self.selve.executeCommand.assert_called_once()
-            command = self.selve.executeCommand.call_args[0][0]
+
+            # Check that the IVEO telegram was sent (response-acked, not fire-and-forget)
+            self.selve._executeCommandSyncWithResponse.assert_called_once()
+            command = self.selve._executeCommandSyncWithResponse.call_args[0][0]
             self.assertIsInstance(command, IveoManual)
-            
+
             # Check that device state was updated properly
             self.selve.setDeviceState.assert_any_call(2, MovementState.DOWN_ON, SelveTypes.IVEO)
             self.selve.setDeviceState.assert_any_call(2, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             self.selve.setDeviceValue.assert_called_with(2, 100, SelveTypes.IVEO)
             self.selve.setDeviceTargetValue.assert_called_with(2, 100, SelveTypes.IVEO)
-            
+
         self.loop.run_until_complete(test_async())
         
     def test_move_device_stop(self):

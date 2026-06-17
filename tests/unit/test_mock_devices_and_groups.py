@@ -198,17 +198,21 @@ class TestMockDevicesAndGroups:
         self.selve.setDeviceState = MagicMock()
         self.selve.setDeviceValue = MagicMock()
         self.selve.setDeviceTargetValue = MagicMock()
-        
+        self.selve.iveoRepeat = 1
+        self.selve._executeCommandSyncWithResponse = AsyncMock(
+            return_value=MagicMock(executed=True)
+        )
+
         # Run the test
         async def test_async():
             # Attempt to move the device
             await self.selve.moveDeviceUp(non_existent_iveo)
-            
+
             # Command should still be sent even though device doesn't exist in the list
-            self.selve.executeCommand.assert_called_once()
-            command = self.selve.executeCommand.call_args[0][0]
+            self.selve._executeCommandSyncWithResponse.assert_called_once()
+            command = self.selve._executeCommandSyncWithResponse.call_args[0][0]
             assert isinstance(command, IveoManual)
-            
+
         self.loop.run_until_complete(test_async())
         
     def test_move_group_not_in_gateway(self):
@@ -253,19 +257,21 @@ class TestMockDevicesAndGroups:
         
     def test_iveo_command_failure(self):
         """Test handling of IVEO command failure."""
-        # Configure the mock to simulate command failure
-        self.selve.executeCommand.side_effect = GatewayError("Command failed")
+        # Configure the mock to simulate command failure on the acked send path
+        self.selve._executeCommandSyncWithResponse = AsyncMock(
+            side_effect=GatewayError("Command failed")
+        )
           # Run the test
         async def test_async():
             # Attempt to move the IVEO device
             with pytest.raises(GatewayError):
                 await self.selve.moveDeviceDown(self.iveo_device)
-            
+
             # Check that command was attempted
-            self.selve.executeCommand.assert_called_once()
-            command = self.selve.executeCommand.call_args[0][0]
+            self.selve._executeCommandSyncWithResponse.assert_called_once()
+            command = self.selve._executeCommandSyncWithResponse.call_args[0][0]
             assert isinstance(command, IveoManual)
-            
+
         self.loop.run_until_complete(test_async())
         
     def test_group_command_failure(self):
