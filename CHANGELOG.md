@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.15] - 2026-07-26
+
+### Fixed
+- **Gateway hang no longer freezes everything forever** (the 2026-07-25 incident: 12+ hours of covers stuck in "opening" while commands vanished silently):
+  - `startWorker()` health-checked only the TX task. A dead **dispatch task** (the one that processes every gateway response) was never noticed and never restarted — TX kept "working", nothing ever came back. All three workers are checked now.
+  - `setup()` replaced `rxQ`/`txQ` while workers were running; a dispatch task still awaiting the old queue instance hung on it forever. Workers are stopped before the queues are swapped.
+  - The idle **keepalive ping discarded its result** — even hours of unanswered pings triggered nothing. Three consecutive failures now escalate into a full worker+transport rebuild with fresh queues (and back off while the library is shutting down).
+  - Movement polling gave up **silently** after its 60s budget, leaving the optimistic `UP_ON`/`DOWN_ON` standing forever. On timeout it now logs a warning and marks the movement state `UNKOWN`.
+- **Phantom 50% positions**: the gateway's `0x8000` "position unknown" sentinel converted to exactly 50 and overwrote correct, newer positions (visible after stops and late poll responses). `Util.valueToPercentage()` returns `None` for the sentinel and consumers keep the last known value.
+- **IVEO positions are only claimed when confirmed**: drive commands updated value/targetValue even when the gateway never acknowledged a single transmission (shutter never moved, library said it did). The position now only updates when `_send_iveo_command()` reports a confirmed send.
+
+### Added
+- `Selve.connected` property — True while transport and worker pipeline are up (False during recovery), so integrations can bind entity availability to the real gateway state.
+
 ## [2.5.14] - 2026-06-17
 
 ### Added
