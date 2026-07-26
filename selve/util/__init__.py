@@ -38,6 +38,9 @@ class MethodResponse:
 
     def __init__(self, name, parameters):
         self.name = name
+        # Several subclasses overwrite self.name with the *device* name, so
+        # request/response matching needs its own untouched copy.
+        self.method_name = name
         self.parameters = parameters
 
 class CommeoDeviceEventResponse(MethodResponse):

@@ -312,3 +312,47 @@ class TestIveoStopGating:
 
         # IVEO has no position feedback — unknown beats a made-up 50%
         assert dev.value is None
+
+
+class TestMethodNamePreserved:
+    """Response subclasses overwrite .name with the device name — matching
+    requests to responses must not rely on it (it stalled every command)."""
+
+    def test_method_name_survives_subclass_overwrite(self):
+        import untangle
+        from selve.commands.device import DeviceGetValues
+
+        s = _make_selve()
+        xml = (
+            "<methodResponse><array>"
+            "<string>selve.GW.device.getValues</string><string>Buero</string>"
+            "<int>1</int><int>1</int><int>32767</int><int>65535</int>"
+            "<int>0</int><int>0</int>"
+            "</array></methodResponse>"
+        )
+        resp = s.create_response(untangle.parse(xml))
+
+        assert resp.name == "Buero"                                # device name
+        assert resp.method_name == "selve.GW.device.getValues"     # routing key
+        # and it matches what the command announced
+        assert resp.method_name == DeviceGetValues(1).method_name
+
+    @pytest.mark.asyncio
+    async def test_response_resolves_its_own_request(self):
+        import untangle
+
+        s = _make_selve()
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        s._pending_futures.append((fut, "selve.GW.device.getValues"))
+
+        xml = (
+            "<methodResponse><array>"
+            "<string>selve.GW.device.getValues</string><string>Buero</string>"
+            "<int>1</int><int>1</int><int>32767</int><int>65535</int>"
+            "<int>0</int><int>0</int>"
+            "</array></methodResponse>"
+        )
+        resp = s.create_response(untangle.parse(xml))
+        assert s._resolve_next_future(resp, resp.method_name) is True
+        assert fut.done()

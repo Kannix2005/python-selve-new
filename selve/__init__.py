@@ -531,7 +531,7 @@ class Selve:
                         self._LOGGER.debug("(Selve RX): error response without pending future -> %s", resp)
                 elif resp not in (False, True, None):
                     if not self._resolve_next_future(
-                        resp, getattr(resp, "name", None)
+                        resp, getattr(resp, "method_name", None)
                     ):
                         self._LOGGER.debug("(Selve RX): response without pending future -> %s", resp)
                 self.rxQ.task_done()
