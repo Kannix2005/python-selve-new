@@ -101,7 +101,7 @@ class TestSelveDeviceCommandsExtended(unittest.TestCase):
             (ParameterType.STRING, "Test Device"),  # name
             (ParameterType.INT, 1),                 # unused
             (ParameterType.INT, 1),                 # movementState
-            (ParameterType.INT, 32768),             # value (50% of 65535)
+            (ParameterType.INT, 32767),             # value (50% of 65535; 32768 is the "unknown" sentinel)
             (ParameterType.INT, 65535),             # targetValue (100% of 65535)
             (ParameterType.INT, 0b1010101010),      # flags
             (ParameterType.INT, 1),                 # dayMode
@@ -109,9 +109,13 @@ class TestSelveDeviceCommandsExtended(unittest.TestCase):
         response = DeviceGetValuesResponse("test", parameters)
         self.assertEqual(response.name, "Test Device")
         self.assertEqual(response.movementState, MovementState.STOPPED_OFF)
-        self.assertAlmostEqual(response.value, 50.0, places=1)
+        self.assertAlmostEqual(response.value, 49.0, places=1)
         self.assertAlmostEqual(response.targetValue, 100.0, places=1)
         self.assertEqual(response.dayMode, DayMode.NIGHTMODE)
+
+        # 0x8000 is the gateway's "position unknown" sentinel -> None
+        parameters[3] = (ParameterType.INT, 32768)
+        self.assertIsNone(DeviceGetValuesResponse("test", parameters).value)
         
         # Test boolean flags
         self.assertIsInstance(response.unreachable, bool)

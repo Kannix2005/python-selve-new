@@ -134,6 +134,13 @@ class Selve:
         self._keepalive_task = None
         self._keepalive_interval = _KEEPALIVE_INTERVAL
         self._last_rx = 0.0
+        # Dead-link escalation: after this many consecutive unanswered pings
+        # the keepalive triggers a full worker+transport rebuild.
+        self._keepalive_max_failures = 3
+        self._ping_failures = 0
+        self._recover_task = None
+        self._recovering = False
+        self._closing = False
 
         # Active movement polling tasks keyed by device id
         self._movement_tasks: dict = {}
@@ -199,6 +206,14 @@ class Selve:
 
     async def setup(self, discover=False, fromConfigFlow=False):
         self._LOGGER.info("Setup")
+        self._closing = False
+
+        # Never swap the queues under a running worker: a dispatch task still
+        # awaiting the old rxQ instance would hang on it forever while the
+        # reader feeds the new queue — the frozen-state failure mode.
+        if any(t is not None and not t.done()
+               for t in (self._tx_task, self._dispatch_task, self._keepalive_task)):
+            await self.stopWorker()
 
         self.rxQ = asyncio.Queue()
         self.txQ = asyncio.Queue()
@@ -289,8 +304,26 @@ class Selve:
             raise PortError
 
 
+    @property
+    def connected(self) -> bool:
+        """True while the worker pipeline and transport are up.
+
+        Integrations can bind entity availability to this — a dead gateway
+        that still shows "available" entities masks the failure for hours.
+        Reports False during an ongoing recovery.
+        """
+        if self._recovering:
+            return False
+        workers = (self._tx_task, self._dispatch_task)
+        return (self._transport is not None
+                and all(t is not None and not t.done() for t in workers))
+
     async def startWorker(self):
-        if self._tx_task is not None and not self._tx_task.done():
+        # All three workers must be alive for the early-return: checking only
+        # the TX task let a dead dispatch task go unnoticed forever — TX kept
+        # "working" while no response was ever processed again (frozen states).
+        workers = (self._tx_task, self._dispatch_task, self._keepalive_task)
+        if all(t is not None and not t.done() for t in workers):
             return  # already running
         self._LOGGER.debug("Starting worker")
         self._pauseWorker.clear()
@@ -379,12 +412,68 @@ class Selve:
                 if self._stopThread.is_set():
                     break
                 if time.monotonic() - self._last_rx < self._keepalive_interval:
+                    self._ping_failures = 0
                     continue
-                await self._executeCommandSyncWithResponse(ServicePing())
+                resp = await self._executeCommandSyncWithResponse(ServicePing())
+                if resp is False:
+                    # Timeout: the gateway (or our own dispatch pipeline) did
+                    # not answer. A hung dispatch task is not "done", so the
+                    # startWorker health check cannot see it — the ping is the
+                    # only signal that RX is dead. Escalate instead of
+                    # discarding the result.
+                    self._ping_failures += 1
+                    self._LOGGER.warning(
+                        "(Selve keepalive): ping unanswered (%d/%d)",
+                        self._ping_failures, self._keepalive_max_failures,
+                    )
+                    if self._ping_failures >= self._keepalive_max_failures:
+                        self._ping_failures = 0
+                        self._LOGGER.error(
+                            "(Selve keepalive): link dead — triggering worker/transport recovery"
+                        )
+                        # Own task: stopWorker() cancels this keepalive task,
+                        # so recovery must not run inside it.
+                        self._recover_task = asyncio.create_task(self._recover_from_hang())
+                        return
+                else:
+                    self._ping_failures = 0
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._LOGGER.debug("(Selve keepalive): error %s", e)
+
+    async def _recover_from_hang(self):
+        """Full worker+transport rebuild after the keepalive declared the link dead.
+
+        Fresh queues are essential: a hung dispatch task may still await the
+        old rxQ instance; the new dispatch task must read the queue the
+        reader actually feeds.
+        """
+        if self._recovering or self._closing:
+            return
+        self._recovering = True
+        try:
+            self._LOGGER.warning("(Selve recovery): rebuilding workers and transport")
+            await self.stopWorker()
+            await self._teardown_transport()
+            if self._closing:
+                return
+            self.rxQ = asyncio.Queue()
+            self.txQ = asyncio.Queue()
+            self._pending_futures.clear()
+            await self.startWorker()
+            resp = await self._executeCommandSyncWithResponse(ServicePing())
+            if resp is not False:
+                self._LOGGER.info("(Selve recovery): gateway responding again")
+            else:
+                self._LOGGER.error(
+                    "(Selve recovery): gateway still not responding after rebuild "
+                    "(next keepalive cycle will retry)"
+                )
+        except Exception as e:
+            self._LOGGER.error("(Selve recovery): failed: %s", e)
+        finally:
+            self._recovering = False
 
     async def _dispatch_loop(self):
         self._LOGGER.debug("(Selve RX): dispatcher started")
@@ -461,6 +550,7 @@ class Selve:
         # wait for the rx/tx thread to end, these need to be gathered to
         # collect all the exceptions
         self._LOGGER.debug("Preparing for termination")
+        self._closing = True  # keeps a pending keepalive recovery from resurrecting the workers
         await self.stopWorker()
         # close the serial port, do the cleanup
         await self._teardown_transport()
@@ -1105,16 +1195,19 @@ class Selve:
 
             device.state = response.actorState
 
-            if self.reversedStopPosition == 0:
-                device.value = response.value if response.value else 0
-            else:
-                device.value = 100 - response.value if response.value else 0
+            # None = gateway reported "position unknown" (0x8000): keep the
+            # last known value instead of overwriting it with a phantom.
+            if response.value is not None:
+                if self.reversedStopPosition == 0:
+                    device.value = response.value
+                else:
+                    device.value = 100 - response.value
 
-
-            if self.reversedStopPosition == 0:
-                device.targetValue = response.targetValue if response.targetValue else 0
-            else:
-                device.targetValue = 100 - response.targetValue if response.targetValue else 0
+            if response.targetValue is not None:
+                if self.reversedStopPosition == 0:
+                    device.targetValue = response.targetValue
+                else:
+                    device.targetValue = 100 - response.targetValue
 
             device.unreachable = response.unreachable
             device.overload = response.overload
@@ -1487,16 +1580,18 @@ class Selve:
         dev = self.getDevice(id, SelveTypes.DEVICE)
         dev.name = response.name if response.name else "None"
         dev.state = response.movementState if response.movementState else MovementState.UNKOWN.value
-        if self.reversedStopPosition == 0:
-            dev.value = response.value if response.value else 0
-        else:
-            dev.value = 100 - response.value if response.value else 0
+        # None = "position unknown" sentinel (0x8000): keep last known value.
+        if response.value is not None:
+            if self.reversedStopPosition == 0:
+                dev.value = response.value
+            else:
+                dev.value = 100 - response.value
 
-
-        if self.reversedStopPosition == 0:
-            dev.targetValue = response.targetValue if response.targetValue else 0
-        else:
-            dev.targetValue = 100 - response.targetValue if response.targetValue else 0
+        if response.targetValue is not None:
+            if self.reversedStopPosition == 0:
+                dev.targetValue = response.targetValue
+            else:
+                dev.targetValue = 100 - response.targetValue
 
         dev.unreachable = response.unreachable
         dev.overload = response.overload if response.overload else False
@@ -1561,6 +1656,18 @@ class Selve:
                 if self.getDevice(device_id, SelveTypes.DEVICE) is None:
                     break
                 await self.updateCommeoDeviceValuesAsync(device_id)
+            if elapsed >= timeout:
+                # No stop confirmation arrived: don't let the optimistic
+                # UP_ON/DOWN_ON stand forever (it froze HA covers in
+                # "opening" for hours) — be honest and mark it unknown.
+                dev = self.getDevice(device_id, SelveTypes.DEVICE)
+                if dev is not None and dev.state in (MovementState.UP_ON, MovementState.DOWN_ON):
+                    self._LOGGER.warning(
+                        "Device %s: no movement-stop confirmation within %.0fs — "
+                        "marking movement state unknown", device_id, timeout,
+                    )
+                    dev.state = MovementState.UNKOWN
+                    self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
         except asyncio.CancelledError:
             pass
         finally:
@@ -1628,10 +1735,13 @@ class Selve:
             self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            await self._send_iveo_command(device.id, DriveCommandIveo.UP)
+            confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.UP)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
-            self.setDeviceValue(device.id, 0, SelveTypes.IVEO)
-            self.setDeviceTargetValue(device.id, 0, SelveTypes.IVEO)
+            # Only claim the new position when the gateway confirmed at least
+            # one transmission — otherwise HA shows a move that never happened.
+            if confirmed:
+                self.setDeviceValue(device.id, 0, SelveTypes.IVEO)
+                self.setDeviceTargetValue(device.id, 0, SelveTypes.IVEO)
 
     async def moveDeviceDown(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
@@ -1641,10 +1751,11 @@ class Selve:
             self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            await self._send_iveo_command(device.id, DriveCommandIveo.DOWN)
+            confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.DOWN)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
-            self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
-            self.setDeviceTargetValue(device.id, 100, SelveTypes.IVEO)
+            if confirmed:
+                self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
+                self.setDeviceTargetValue(device.id, 100, SelveTypes.IVEO)
 
     async def moveDevicePos1(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
@@ -1652,10 +1763,11 @@ class Selve:
             self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
-            await self._send_iveo_command(device.id, DriveCommandIveo.POS1)
+            confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.POS1)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
-            self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
-            self.setDeviceTargetValue(device.id, 66, SelveTypes.IVEO)
+            if confirmed:
+                self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
+                self.setDeviceTargetValue(device.id, 66, SelveTypes.IVEO)
 
     async def moveDevicePos2(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
@@ -1663,10 +1775,11 @@ class Selve:
             self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
-            await self._send_iveo_command(device.id, DriveCommandIveo.POS2)
+            confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.POS2)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
-            self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
-            self.setDeviceTargetValue(device.id, 33, SelveTypes.IVEO)
+            if confirmed:
+                self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
+                self.setDeviceTargetValue(device.id, 33, SelveTypes.IVEO)
 
     async def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
         await self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))

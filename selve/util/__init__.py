@@ -160,9 +160,17 @@ class Util():
     def true_in_list(self, l):
         return [i for i,v in enumerate(l) if v]
 
+    # Gateway sentinel for "position unknown" (spec: value 0x8000). Naively
+    # converted it lands on exactly 50% and overwrites a correct position
+    # with a phantom value; callers must treat None as "keep previous value".
+    UNKNOWN_POSITION_RAW = 0x8000
+
     @classmethod
     def valueToPercentage(self, value):
-        return int((int(value) / 65535)*100)
+        raw = int(value)
+        if raw == self.UNKNOWN_POSITION_RAW:
+            return None
+        return int((raw / 65535)*100)
     @classmethod
     def valueToDegrees(self, value):
         return int((int(value) / 65535)*360)
