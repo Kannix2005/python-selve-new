@@ -21,4 +21,4 @@ class FirmwareGetVersionResponse(MethodResponse):
 class FirmwareUpdateResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])

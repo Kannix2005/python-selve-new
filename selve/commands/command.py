@@ -123,17 +123,17 @@ class CommandGroupMan(GatewayCommand):
 class CommandDeviceResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 class CommandGroupResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 class CommandGroupManResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
         self.ids = [ b for b in Util.true_in_list(Util.b64bytes_to_bitlist(parameters[1][1]))]
 
 
@@ -142,6 +142,6 @@ class CommandResultResponse(MethodResponse):
         super().__init__(name, parameters)
         self.command = DriveCommandCommeo(int(parameters[0][1]))
         self.commandType = DeviceCommandType(int(parameters[1][1]))
-        self.executed = bool(parameters[2][1])
+        self.executed = Util.toBool(parameters[2][1])
         self.successIds = [ b for b in Util.true_in_list(Util.b64bytes_to_bitlist(parameters[3][1]))]
         self.failedIds = [ b for b in Util.true_in_list(Util.b64bytes_to_bitlist(parameters[4][1]))]

@@ -89,13 +89,13 @@ class SenSimGetTest(GatewayCommand):
 class SenSimStoreResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class SenSimDeleteResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class SenSimGetConfigResponse(MethodResponse):
@@ -103,25 +103,25 @@ class SenSimGetConfigResponse(MethodResponse):
         super().__init__(name, parameters)
         self.name = str(parameters[0][1])
         self.senSimId = int(parameters[1][1])
-        self.activity = bool(parameters[2][1])
+        self.activity = Util.toBool(parameters[2][1])
 
 
 class SenSimSetConfigResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class SenSimSetLabelResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class SenSimSetValuesResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class SenSimGetValuesResponse(MethodResponse):
@@ -149,23 +149,23 @@ class SenSimGetIdsResponse(MethodResponse):
 class SenSimFactoryResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class SenSimDriveResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class SenSimSetTestResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class SenSimGetTestResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
         self.id = int(parameters[0][1])
-        self.testMode = bool(parameters[1][1])
+        self.testMode = Util.toBool(parameters[1][1])

@@ -66,13 +66,13 @@ class DeviceWriteManual(GatewayCommand):
 class DeviceScanStartResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class DeviceScanStopResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 class DeviceScanResultResponse(MethodResponse):
     def __init__(self, name, parameters):
@@ -85,7 +85,7 @@ class DeviceScanResultResponse(MethodResponse):
 class DeviceSaveResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class DeviceGetIdsResponse(MethodResponse):
@@ -129,28 +129,28 @@ class DeviceGetValuesResponse(MethodResponse):
 class DeviceSetFunctionResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class DeviceSetLabelResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class DeviceSetTypeResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class DeviceDeleteResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class DeviceWriteManualResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])

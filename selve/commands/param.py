@@ -37,7 +37,7 @@ class ParamGetRf(GatewayCommand):
 class ParamSetForwardResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class ParamGetForwardResponse(MethodResponse):
@@ -49,17 +49,17 @@ class ParamGetForwardResponse(MethodResponse):
 class ParamSetEventResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class ParamGetEventResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.eventDevice = bool(parameters[0][1])
-        self.eventSensor = bool(parameters[1][1])
-        self.eventSender = bool(parameters[2][1])
-        self.eventLogging = bool(parameters[3][1])
-        self.eventDuty = bool(parameters[4][1])
+        self.eventDevice = Util.toBool(parameters[0][1])
+        self.eventSensor = Util.toBool(parameters[1][1])
+        self.eventSender = Util.toBool(parameters[2][1])
+        self.eventLogging = Util.toBool(parameters[3][1])
+        self.eventDuty = Util.toBool(parameters[4][1])
 
 
 class ParamGetDutyResponse(MethodResponse):
@@ -89,7 +89,7 @@ class ParamSetDuty(GatewayCommand):
 class ParamSetDutyResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class ParamSetRf(GatewayCommand):
@@ -100,7 +100,7 @@ class ParamSetRf(GatewayCommand):
 class ParamSetRfResponse(MethodResponse):
     def __init__(self, name, parameters):
         super().__init__(name, parameters)
-        self.executed = bool(parameters[0][1])
+        self.executed = Util.toBool(parameters[0][1])
 
 
 class ParamGetTemperature(GatewayCommand):

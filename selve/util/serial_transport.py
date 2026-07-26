@@ -57,6 +57,9 @@ class SerialTransport:
         self._writer: Optional[asyncio.StreamWriter] = None
         self._reader_task: Optional[asyncio.Task] = None
         self._rx_queue: Optional[asyncio.Queue] = None
+        # Reader (idle/error reconnect) and writer can both find the port
+        # closed at the same moment and open it twice, leaking a handle.
+        self._open_lock = asyncio.Lock()
 
     @property
     def port(self) -> str:
@@ -67,7 +70,9 @@ class SerialTransport:
         return self._writer is not None and not self._writer.is_closing()
 
     async def ensure_open(self) -> None:
-        if not self.is_open:
+        async with self._open_lock:
+            if self.is_open:
+                return  # opened by whoever held the lock before us
             self._logger.info("Serial: opening %s", self._port)
             self._reader, self._writer = await serialx.open_serial_connection(
                 url=self._port,

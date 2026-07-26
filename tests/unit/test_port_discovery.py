@@ -193,7 +193,7 @@ async def test_auto_discovery(logger, event_loop, mock_serial, mock_list_ports):
         return False
     
     with patch.object(selve_instance, '_probe_port', AsyncMock(side_effect=probe_side_effect)) as mock_probe:
-        with patch.object(selve_instance, 'discover', new_callable=AsyncMock) as mock_discover:
+        with patch.object(selve_instance, '_discover_unlocked', new_callable=AsyncMock) as mock_discover:
             with patch.object(selve_instance, 'startWorker', new_callable=AsyncMock) as mock_start_worker:
                 mock_discover.return_value = None
                 mock_start_worker.return_value = None

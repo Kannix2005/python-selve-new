@@ -28,8 +28,8 @@ class TestResolveNextFuture:
         try:
             fut1 = loop.create_future()
             fut2 = loop.create_future()
-            selve._pending_futures.append(fut1)
-            selve._pending_futures.append(fut2)
+            selve._pending_futures.append((fut1, None))
+            selve._pending_futures.append((fut2, None))
 
             assert selve._resolve_next_future("result") is True
             assert fut1.result() == "result"
@@ -44,8 +44,8 @@ class TestResolveNextFuture:
             fut1 = loop.create_future()
             fut1.cancel()
             fut2 = loop.create_future()
-            selve._pending_futures.append(fut1)
-            selve._pending_futures.append(fut2)
+            selve._pending_futures.append((fut1, None))
+            selve._pending_futures.append((fut2, None))
 
             assert selve._resolve_next_future(False) is True
             assert fut2.result() is False
@@ -70,7 +70,7 @@ async def test_error_response_resolves_future_immediately():
     selve.processResponse = fake_process
 
     future = asyncio.get_running_loop().create_future()
-    selve._pending_futures.append(future)
+    selve._pending_futures.append((future, None))
     await selve.rxQ.put("<dummy/>")
 
     task = asyncio.create_task(selve._dispatch_loop())

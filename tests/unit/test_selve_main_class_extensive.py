@@ -121,7 +121,7 @@ class TestSelveMainClassExtensive:
         selve_instance = Selve(port="COM3", logger=mock_logger)
 
         with patch.object(selve_instance, '_probe_port', AsyncMock(return_value=True)) as mock_probe, \
-             patch.object(selve_instance, 'discover', return_value=None), \
+             patch.object(selve_instance, '_discover_unlocked', return_value=None), \
              patch.object(selve_instance, 'startWorker', return_value=None):
 
             await selve_instance.setup(discover=True)

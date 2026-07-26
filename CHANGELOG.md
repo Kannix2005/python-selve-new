@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.16] - 2026-07-26
+
+### Fixed
+- **Every "did it work?" check was broken**: response parameters arrive as raw strings, and `bool("0")` is `True` in Python — so `executed` and friends were always `True`, no matter what the gateway answered (55 call sites across all command modules). They now go through `Util.toBool()`. This also gives 2.5.15's IVEO confirmation gating its teeth: it could previously only detect a timeout, never a gateway that refused to transmit.
+- **Responses could be handed to the wrong caller**: futures were matched to responses purely by arrival order, so one late (post-timeout) or dropped response shifted every following assignment by one — devices silently showed other devices' values. Responses are now matched by method name, a timed-out request removes its own future, and an unmatched response is dropped instead of resolving an unrelated one.
+- `updateCommeoDeviceValuesFromResponse()` no longer raises on values for an unknown device id (the exception aborted response processing and stranded the waiting caller).
+- `discover()` now also resets `txQ` — a command queued just before discovery was injected into the middle of the discovery sequence.
+- `SerialTransport.ensure_open()` is guarded by a lock: reader (idle/error reconnect) and writer could open the port twice and leak a handle.
+- The device discovery loop no longer turns an unknown position into a definite 0 — the 2.5.15 sentinel handling was missing here.
+- `stopDevice()` for IVEO now respects the send confirmation and reports the position as unknown instead of inventing "50%".
+
+### Added
+- Everything that rebuilds transport, queues or workers (`setup`, `discover`, `check_port`, keepalive recovery) is serialized by one lock. A reload landing inside a running recovery could otherwise reintroduce exactly the race 2.5.15 fixed.
+- Link-state changes are pushed to registered callbacks. `connected` alone was not enough: consumers only re-evaluate on a callback, so a dead gateway never reached Home Assistant unless a device happened to report in. `connected` now also turns `False` once the keepalive declares the link dead (detection takes up to ~90s) and `True` again as soon as data flows.
+
 ## [2.5.15] - 2026-07-26
 
 ### Fixed

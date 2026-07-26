@@ -141,6 +141,14 @@ class Selve:
         self._recover_task = None
         self._recovering = False
         self._closing = False
+        # Serializes everything that rebuilds transport/queues/workers
+        # (setup, discover, recovery) — without it a reload landing inside a
+        # running recovery reintroduces the very race these guards prevent.
+        self._connLock = asyncio.Lock()
+        # False once the keepalive declared the link dead, True again as soon
+        # as any data arrives. Transitions notify callbacks so consumers can
+        # re-evaluate availability — nothing else would ever ask.
+        self._link_ok = True
 
         # Active movement polling tasks keyed by device id
         self._movement_tasks: dict = {}
@@ -200,11 +208,16 @@ class Selve:
 
     async def check_port(self, port):
         if port is not None:
-            return await self._probe_port(port, fromConfigFlow=True)
+            async with self._connLock:
+                return await self._probe_port(port, fromConfigFlow=True)
         return False
 
 
     async def setup(self, discover=False, fromConfigFlow=False):
+        async with self._connLock:
+            return await self._setup_unlocked(discover, fromConfigFlow)
+
+    async def _setup_unlocked(self, discover=False, fromConfigFlow=False):
         self._LOGGER.info("Setup")
         self._closing = False
 
@@ -225,7 +238,7 @@ class Selve:
                     if not fromConfigFlow:
                         if discover:
                             self._LOGGER.info("Discovering devices")
-                            await self.discover()
+                            await self._discover_unlocked()
                         await self.startWorker()
                     return
             except (OSError, IOError) as e:
@@ -249,7 +262,7 @@ class Selve:
                     if not fromConfigFlow:
                         if discover:
                             self._LOGGER.info("Discovering devices")
-                            await self.discover()
+                            await self._discover_unlocked()
                         await self.startWorker()
                     return
             except Exception as e:
@@ -312,11 +325,20 @@ class Selve:
         that still shows "available" entities masks the failure for hours.
         Reports False during an ongoing recovery.
         """
-        if self._recovering:
+        if self._recovering or not self._link_ok:
             return False
         workers = (self._tx_task, self._dispatch_task)
         return (self._transport is not None
                 and all(t is not None and not t.done() for t in workers))
+
+    def _set_link_ok(self, value: bool) -> None:
+        """Update link health and push the change to registered callbacks."""
+        if self._link_ok == value:
+            return
+        self._link_ok = value
+        self._LOGGER.info("(Selve): link %s", "restored" if value else "lost")
+        # device=None -> "something global changed, refresh everything"
+        self._fire_callbacks(None)
 
     async def startWorker(self):
         # All three workers must be alive for the early-return: checking only
@@ -369,7 +391,12 @@ class Selve:
                     command, future = item, None
 
                 if future is not None:
-                    self._pending_futures.append(future)
+                    # Remember which method this future waits for: matching
+                    # responses by position alone silently mis-assigns every
+                    # later response once a single one is lost or late.
+                    self._pending_futures.append(
+                        (future, getattr(command, "method_name", None))
+                    )
 
                 await self._sendCommandToGateway(command)
 
@@ -431,6 +458,9 @@ class Selve:
                         self._LOGGER.error(
                             "(Selve keepalive): link dead — triggering worker/transport recovery"
                         )
+                        # Tell consumers now: entities should show unavailable
+                        # while we rebuild, not a stale state.
+                        self._set_link_ok(False)
                         # Own task: stopWorker() cancels this keepalive task,
                         # so recovery must not run inside it.
                         self._recover_task = asyncio.create_task(self._recover_from_hang())
@@ -453,18 +483,22 @@ class Selve:
             return
         self._recovering = True
         try:
-            self._LOGGER.warning("(Selve recovery): rebuilding workers and transport")
-            await self.stopWorker()
-            await self._teardown_transport()
-            if self._closing:
-                return
-            self.rxQ = asyncio.Queue()
-            self.txQ = asyncio.Queue()
-            self._pending_futures.clear()
-            await self.startWorker()
+            async with self._connLock:
+                self._LOGGER.warning("(Selve recovery): rebuilding workers and transport")
+                await self.stopWorker()
+                await self._teardown_transport()
+                if self._closing:
+                    return
+                self.rxQ = asyncio.Queue()
+                self.txQ = asyncio.Queue()
+                self._pending_futures.clear()
+                await self.startWorker()
+            # Ping outside the lock: it goes through the freshly started
+            # workers and must not block a concurrent setup/reload.
             resp = await self._executeCommandSyncWithResponse(ServicePing())
             if resp is not False:
                 self._LOGGER.info("(Selve recovery): gateway responding again")
+                self._set_link_ok(True)
             else:
                 self._LOGGER.error(
                     "(Selve recovery): gateway still not responding after rebuild "
@@ -474,6 +508,7 @@ class Selve:
             self._LOGGER.error("(Selve recovery): failed: %s", e)
         finally:
             self._recovering = False
+            self._fire_callbacks(None)  # recovery finished: refresh availability
 
     async def _dispatch_loop(self):
         self._LOGGER.debug("(Selve RX): dispatcher started")
@@ -483,6 +518,8 @@ class Selve:
             except asyncio.CancelledError:
                 break
             self._last_rx = time.monotonic()
+            if not self._link_ok:
+                self._set_link_ok(True)  # data flowing again
 
             try:
                 resp = await self.processResponse(msg)
@@ -493,7 +530,9 @@ class Selve:
                     if not self._resolve_next_future(False):
                         self._LOGGER.debug("(Selve RX): error response without pending future -> %s", resp)
                 elif resp not in (False, True, None):
-                    if not self._resolve_next_future(resp):
+                    if not self._resolve_next_future(
+                        resp, getattr(resp, "name", None)
+                    ):
                         self._LOGGER.debug("(Selve RX): response without pending future -> %s", resp)
                 self.rxQ.task_done()
             except Exception as e:
@@ -504,16 +543,44 @@ class Selve:
                     pass
 
 
-    def _resolve_next_future(self, result):
-        """Resolve the oldest pending command future with the given result."""
-        while self._pending_futures:
-            fut = self._pending_futures.popleft()
-            if fut.cancelled():
-                continue
-            if not fut.done():
+    def _resolve_next_future(self, result, method_name=None):
+        """Resolve the pending future waiting for *method_name*.
+
+        Without a name (gateway faults carry none) the oldest pending future
+        is used. With one, only a future that actually asked for this method
+        is resolved — a late or unsolicited response is dropped instead of
+        being handed to the next unrelated caller.
+        """
+        # Drop futures nobody waits for any more (timed out / cancelled).
+        while self._pending_futures and self._pending_futures[0][0].done():
+            self._pending_futures.popleft()
+
+        if not self._pending_futures:
+            return False
+
+        if method_name is None:
+            fut, _ = self._pending_futures.popleft()
+            fut.set_result(result)
+            return True
+
+        for idx, (fut, expected) in enumerate(self._pending_futures):
+            if expected is None or expected == method_name:
+                del self._pending_futures[idx]
+                if idx:
+                    self._LOGGER.debug(
+                        "(Selve RX): response %s matched out of order (skipped %d)",
+                        method_name, idx,
+                    )
                 fut.set_result(result)
                 return True
         return False
+
+    def _discard_pending_future(self, future):
+        """Remove a future from the pending queue (caller gave up on it)."""
+        for idx, (fut, _) in enumerate(self._pending_futures):
+            if fut is future:
+                del self._pending_futures[idx]
+                return
 
     async def stopWorker(self):
         self._LOGGER.debug("Stopping worker")
@@ -963,12 +1030,19 @@ class Selve:
         except asyncio.TimeoutError:
             if not future.done():
                 future.cancel()
+            # Leaving it queued would let a late response be handed to an
+            # unrelated caller further down the line.
+            self._discard_pending_future(future)
             return False
 
 
 
 
     async def discover(self):
+        async with self._connLock:
+            return await self._discover_unlocked()
+
+    async def _discover_unlocked(self):
 
         await self.stopWorker()
         # Rebuild transport for a clean connection (avoids stale StreamReader state
@@ -980,6 +1054,9 @@ class Selve:
         # messages against the new discover() command futures, resolving them with
         # the wrong response object and causing silent discover failures.
         self.rxQ = asyncio.Queue()
+        # txQ too: a command queued just before discover() would otherwise be
+        # injected into the middle of the discovery sequence.
+        self.txQ = asyncio.Queue()
         self._pending_futures.clear()
         await self.setEvents(0,0,0,0,0)
         rdy = await self.gatewayReady()
@@ -1009,16 +1086,21 @@ class Selve:
                 config: DeviceGetValuesResponse = await self.executeCommandSyncWithResponse(DeviceGetValues(i))
                 device.state = config.movementState
 
-                if self.reversedStopPosition == 0:
-                    device.value = config.value if config.value else 0
+                # None = gateway reported "position unknown" (0x8000): leave it
+                # unknown instead of inventing a definite position at startup.
+                if config.value is None:
+                    device.value = None
+                elif self.reversedStopPosition == 0:
+                    device.value = config.value
                 else:
-                    device.value = 100 - config.value if config.value else 0
+                    device.value = 100 - config.value
 
-
-                if self.reversedStopPosition == 0:
-                    device.targetValue = config.targetValue if config.targetValue else 0
+                if config.targetValue is None:
+                    device.targetValue = None
+                elif self.reversedStopPosition == 0:
+                    device.targetValue = config.targetValue
                 else:
-                    device.targetValue = 100 - config.targetValue if config.targetValue else 0
+                    device.targetValue = 100 - config.targetValue
 
                 device.unreachable = config.unreachable
                 device.overload = config.overload
@@ -1578,6 +1660,11 @@ class Selve:
 
     def updateCommeoDeviceValuesFromResponse(self, id: int, response: DeviceGetValuesResponse):
         dev = self.getDevice(id, SelveTypes.DEVICE)
+        if dev is None:
+            # Values for a device we don't know (yet). Raising here would
+            # abort response processing and strand the waiting future.
+            self._LOGGER.debug("Values for unknown device id %s — ignored", id)
+            return
         dev.name = response.name if response.name else "None"
         dev.state = response.movementState if response.movementState else MovementState.UNKOWN.value
         # None = "position unknown" sentinel (0x8000): keep last known value.
@@ -1608,18 +1695,19 @@ class Selve:
         if dev is not None and dev.state == MovementState.STOPPED_OFF:
             self._stop_movement_polling(id)
 
-    def setDeviceValue(self, id: int, value: int, type: SelveTypes):
+    def setDeviceValue(self, id: int, value: int | None, type: SelveTypes):
         dev = self.getDevice(id, type)
-        if self.reversedStopPosition == 0:
+        # None means "position unknown" and must not be inverted.
+        if value is None or self.reversedStopPosition == 0:
             dev.value = value
         else:
             dev.value = 100 - value
 
         self.addOrUpdateDevice(dev, type)
 
-    def setDeviceTargetValue(self, id: int, value: int, type: SelveTypes):
+    def setDeviceTargetValue(self, id: int, value: int | None, type: SelveTypes):
         dev = self.getDevice(id, type)
-        if self.reversedStopPosition == 0:
+        if value is None or self.reversedStopPosition == 0:
             dev.targetValue = value
         else:
             dev.targetValue = 100 - value
@@ -1803,10 +1891,13 @@ class Selve:
             await self.executeCommand(CommandStop(device.id, type))
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
-            await self._send_iveo_command(device.id, DriveCommandIveo.STOP)
+            confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.STOP)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
-            self.setDeviceValue(device.id, 50, SelveTypes.IVEO)
-            self.setDeviceTargetValue(device.id, 50, SelveTypes.IVEO)
+            if confirmed:
+                # IVEO gives no position feedback: after a stop the position
+                # is genuinely unknown rather than "half open".
+                self.setDeviceValue(device.id, None, SelveTypes.IVEO)
+                self.setDeviceTargetValue(device.id, None, SelveTypes.IVEO)
 
 
     ## Group

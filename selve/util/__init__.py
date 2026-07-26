@@ -160,6 +160,30 @@ class Util():
     def true_in_list(self, l):
         return [i for i,v in enumerate(l) if v]
 
+    @classmethod
+    def toBool(self, value):
+        """Interpret a gateway response parameter as a boolean.
+
+        Response parameters arrive as raw strings from the XML parser, so a
+        plain bool() call returns True for the string "0" as well — every
+        "did it work?" check in this library silently always said yes.
+        """
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, str):
+            v = value.strip().lower()
+            if v in ("", "0", "false", "no"):
+                return False
+            if v in ("1", "true", "yes"):
+                return True
+            try:
+                return int(v) != 0
+            except ValueError:
+                return True  # non-empty, non-numeric: treat as set
+        return bool(value)
+
     # Gateway sentinel for "position unknown" (spec: value 0x8000). Naively
     # converted it lands on exactly 50% and overwrites a correct position
     # with a phantom value; callers must treat None as "keep previous value".

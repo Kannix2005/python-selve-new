@@ -212,3 +212,103 @@ class TestIveoConfirmedPosition:
         await s.moveDeviceDown(dev)
 
         assert dev.value == 100
+
+
+class TestBooleanParameterParsing:
+    """Response params are raw strings: bool("0") was True, so every
+    "did it work?" check in the library silently always said yes."""
+
+    def test_tobool_reads_gateway_zero_as_false(self):
+        assert Util.toBool("0") is False
+        assert Util.toBool("1") is True
+        assert Util.toBool("") is False
+        assert Util.toBool(None) is False
+
+    def test_executed_flag_reflects_gateway_answer(self):
+        from selve.commands.command import CommandDeviceResponse
+        from selve.util.protocol import ParameterType
+
+        failed = CommandDeviceResponse("x", [(ParameterType.INT, "0")])
+        ok = CommandDeviceResponse("x", [(ParameterType.INT, "1")])
+        assert failed.executed is False
+        assert ok.executed is True
+
+
+class TestFutureMatching:
+    @pytest.mark.asyncio
+    async def test_late_response_does_not_hit_unrelated_caller(self):
+        s = _make_selve()
+        loop = asyncio.get_running_loop()
+        stale, fresh = loop.create_future(), loop.create_future()
+        s._pending_futures.append((stale, "selve.GW.device.getValues"))
+        s._pending_futures.append((fresh, "selve.GW.service.ping"))
+
+        # The getValues answer arrives late; it must not resolve the ping.
+        assert s._resolve_next_future("values", "selve.GW.device.getValues") is True
+        assert stale.result() == "values"
+        assert not fresh.done()
+
+    @pytest.mark.asyncio
+    async def test_unmatched_response_is_dropped(self):
+        s = _make_selve()
+        loop = asyncio.get_running_loop()
+        pending = loop.create_future()
+        s._pending_futures.append((pending, "selve.GW.service.ping"))
+
+        assert s._resolve_next_future("x", "selve.GW.device.getValues") is False
+        assert not pending.done()
+
+    @pytest.mark.asyncio
+    async def test_timed_out_future_is_removed(self):
+        s = _make_selve()
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        s._pending_futures.append((fut, "selve.GW.service.ping"))
+        s._discard_pending_future(fut)
+        assert len(s._pending_futures) == 0
+
+
+class TestLinkStateNotification:
+    def test_link_loss_fires_callbacks(self):
+        s = _make_selve()
+        seen = []
+        s.register_callback(lambda device=None: seen.append(device))
+
+        s._set_link_ok(False)
+        assert seen == [None]  # global refresh, no specific device
+        assert s.connected is False
+
+        s._set_link_ok(True)
+        assert len(seen) == 2
+
+    def test_repeated_same_state_does_not_spam(self):
+        s = _make_selve()
+        seen = []
+        s.register_callback(lambda device=None: seen.append(device))
+        s._set_link_ok(True)  # already True
+        assert seen == []
+
+
+class TestIveoStopGating:
+    @pytest.mark.asyncio
+    async def test_unconfirmed_stop_keeps_position(self):
+        s = _make_selve()
+        dev = _register_device(s, comm_type=CommunicationType.IVEO,
+                               selve_type=SelveTypes.IVEO, value=30)
+        s._send_iveo_command = AsyncMock(return_value=False)
+
+        await s.stopDevice(dev)
+
+        assert dev.value == 30
+
+    @pytest.mark.asyncio
+    async def test_confirmed_stop_marks_position_unknown(self):
+        s = _make_selve()
+        dev = _register_device(s, comm_type=CommunicationType.IVEO,
+                               selve_type=SelveTypes.IVEO, value=30)
+        s._send_iveo_command = AsyncMock(return_value=True)
+
+        await s.stopDevice(dev)
+
+        # IVEO has no position feedback — unknown beats a made-up 50%
+        assert dev.value is None
