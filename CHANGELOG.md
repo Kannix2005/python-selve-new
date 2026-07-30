@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.17] - 2026-07-30
+
+### Fixed
+- **IVEO covers no longer hang in "opening"/"closing" forever.** The gateway's send acknowledgement set the movement state, but IVEO is one-way: it never reports that the motor stopped, and movement polling only exists for COMMEO. Nothing ever cleared that state, so after every drive the cover kept claiming to move until the next command — for a shutter driven twice a day that meant it looked stuck for hours. A travel timer (`iveoTravelTime`, default 30s, tunable via `updateOptions()`) now ends the movement state, and it is restarted by late or unsolicited `IveoResultResponse` messages so those cannot strand it either.
+- A drive command no longer reports `STOPPED_OFF` the instant the telegram went out — the shutter is still travelling at that point. The state stays "moving" until the travel timer expires; if the gateway confirmed nothing, it settles immediately because nothing is moving.
+- `stopDevice()` cancels a running travel timer instead of letting it override the stop.
+
 ## [2.5.16] - 2026-07-26
 
 ### Fixed

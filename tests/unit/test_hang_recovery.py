@@ -356,3 +356,88 @@ class TestMethodNamePreserved:
         resp = s.create_response(untangle.parse(xml))
         assert s._resolve_next_future(resp, resp.method_name) is True
         assert fut.done()
+
+
+class TestIveoMovementStateEnds:
+    """IVEO never reports that the shutter stopped, so a movement state set
+    from the gateway's send-acknowledgement has to time out on its own —
+    otherwise covers hang in 'opening' until the next command (the daily
+    watchdog alert)."""
+
+    @pytest.mark.asyncio
+    async def test_travel_timer_clears_movement_state(self):
+        s = _make_selve()
+        s.iveoTravelTime = 0.05
+        dev = _register_device(s, comm_type=CommunicationType.IVEO,
+                               selve_type=SelveTypes.IVEO)
+        dev.state = MovementState.UP_ON
+
+        s._start_iveo_travel_timer(dev.id)
+        await asyncio.sleep(0.2)
+
+        assert dev.state == MovementState.STOPPED_OFF
+
+    @pytest.mark.asyncio
+    async def test_drive_leaves_state_moving_then_settles(self):
+        s = _make_selve()
+        s.iveoTravelTime = 0.05
+        dev = _register_device(s, comm_type=CommunicationType.IVEO,
+                               selve_type=SelveTypes.IVEO)
+        s._send_iveo_command = AsyncMock(return_value=True)
+
+        await s.moveDeviceUp(dev)
+        # still travelling right after the command
+        assert dev.state == MovementState.UP_ON
+
+        await asyncio.sleep(0.2)
+        assert dev.state == MovementState.STOPPED_OFF
+
+    @pytest.mark.asyncio
+    async def test_unconfirmed_drive_settles_immediately(self):
+        s = _make_selve()
+        dev = _register_device(s, comm_type=CommunicationType.IVEO,
+                               selve_type=SelveTypes.IVEO)
+        s._send_iveo_command = AsyncMock(return_value=False)
+
+        await s.moveDeviceUp(dev)
+
+        # nothing was transmitted, so nothing is moving
+        assert dev.state == MovementState.STOPPED_OFF
+
+    @pytest.mark.asyncio
+    async def test_late_result_does_not_strand_state(self):
+        """The real failure: an IveoResultResponse arriving after the drive
+        call set the state back to UP_ON, where it stayed forever."""
+        from selve.commands.iveo import IveoResultResponse
+        from selve.util.protocol import DriveCommandIveo
+
+        s = _make_selve()
+        s.iveoTravelTime = 0.05
+        dev = _register_device(s, comm_type=CommunicationType.IVEO,
+                               selve_type=SelveTypes.IVEO)
+        dev.state = MovementState.STOPPED_OFF
+
+        class _Result(IveoResultResponse):
+            def __init__(self, command, executedIds):  # skip XML parsing
+                self.command = command
+                self.executedIds = executedIds
+
+        s._handleCommandResult(_Result(DriveCommandIveo.UP, [dev.id]))
+        assert dev.state == MovementState.UP_ON
+
+        await asyncio.sleep(0.2)
+        assert dev.state == MovementState.STOPPED_OFF
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_timer(self):
+        s = _make_selve()
+        s.iveoTravelTime = 5
+        dev = _register_device(s, comm_type=CommunicationType.IVEO,
+                               selve_type=SelveTypes.IVEO)
+        s._send_iveo_command = AsyncMock(return_value=True)
+
+        s._start_iveo_travel_timer(dev.id)
+        await s.stopDevice(dev)
+
+        assert dev.id not in s._iveo_travel_tasks
+        assert dev.state == MovementState.STOPPED_OFF

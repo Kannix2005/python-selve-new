@@ -71,6 +71,9 @@ _KEEPALIVE_INTERVAL = 30.0
 # hardware: a 0.15s gap overwrites, >=0.3s is clean; 0.7s keeps a safe margin.
 _IVEO_REPEAT = 3
 _IVEO_REPEAT_DELAY = 0.7
+# How long an IVEO shutter is assumed to travel. IVEO reports nothing back,
+# so this is the only way the movement state can ever end.
+_IVEO_TRAVEL_TIME = 30.0
 
 # How long to wait for the 868 MHz duty cycle to recover before giving up on
 # a send. The gateway pushes DutyCycleResponse events as airtime frees up.
@@ -153,6 +156,11 @@ class Selve:
         # Active movement polling tasks keyed by device id
         self._movement_tasks: dict = {}
 
+        # IVEO has no return channel: the gateway only confirms that it sent
+        # the telegram, never that the shutter stopped. Without a timer the
+        # movement state would stay UP_ON/DOWN_ON forever.
+        self._iveo_travel_tasks: dict = {}
+
         #Options
         self.reversedStopPosition = 0
         # IVEO reliability: how often a one-way telegram is repeated, and the
@@ -160,6 +168,7 @@ class Selve:
         # _IVEO_REPEAT_DELAY). Tunable via updateOptions().
         self.iveoRepeat = _IVEO_REPEAT
         self.iveoRepeatDelay = _IVEO_REPEAT_DELAY
+        self.iveoTravelTime = _IVEO_TRAVEL_TIME
 
         #Logger
         self._LOGGER: logging.Logger = logger or logging.getLogger(__name__)
@@ -674,12 +683,15 @@ class Selve:
             yield evt
 
 
-    def updateOptions(self, reversedStopPosition = 0, iveoRepeat = None, iveoRepeatDelay = None):
+    def updateOptions(self, reversedStopPosition = 0, iveoRepeat = None,
+                      iveoRepeatDelay = None, iveoTravelTime = None):
         self.reversedStopPosition = reversedStopPosition
         if iveoRepeat is not None:
             self.iveoRepeat = iveoRepeat
         if iveoRepeatDelay is not None:
             self.iveoRepeatDelay = iveoRepeatDelay
+        if iveoTravelTime is not None:
+            self.iveoTravelTime = iveoTravelTime
 
 
     async def _sendCommandToGateway(self, command: Command):
@@ -1368,10 +1380,13 @@ class Selve:
                     continue
                 if response.command is DriveCommandIveo.DOWN:
                     dev.state = MovementState.DOWN_ON
+                    self._start_iveo_travel_timer(id)
                 elif response.command is DriveCommandIveo.UP:
                     dev.state = MovementState.UP_ON
+                    self._start_iveo_travel_timer(id)
                 elif response.command is DriveCommandIveo.STOP:
                     dev.state = MovementState.STOPPED_OFF
+                    self._stop_iveo_travel_timer(id)
                 self.addOrUpdateDevice(dev, SelveTypes.IVEO)
 
         elif isinstance(response, CommandResultResponse):
@@ -1728,6 +1743,40 @@ class Selve:
         task = asyncio.create_task(self._movement_poll_loop(device_id))
         self._movement_tasks[device_id] = task
 
+    def _start_iveo_travel_timer(self, device_id: int) -> None:
+        """Clear an IVEO movement state once the shutter has had time to travel.
+
+        IVEO is one-way: the gateway acknowledges that it transmitted, never
+        that the motor stopped, and there is no polling for it either. Without
+        this timer the movement state set from that acknowledgement stays for
+        good — covers were left showing "opening" until the next command.
+        """
+        self._stop_iveo_travel_timer(device_id)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no running event loop (unit tests, etc.)
+        self._iveo_travel_tasks[device_id] = asyncio.create_task(
+            self._iveo_travel_loop(device_id)
+        )
+
+    def _stop_iveo_travel_timer(self, device_id: int) -> None:
+        task = self._iveo_travel_tasks.pop(device_id, None)
+        if task and not task.done():
+            task.cancel()
+
+    async def _iveo_travel_loop(self, device_id: int) -> None:
+        try:
+            await asyncio.sleep(self.iveoTravelTime)
+            dev = self.getDevice(device_id, SelveTypes.IVEO)
+            if dev is not None and dev.state in (MovementState.UP_ON, MovementState.DOWN_ON):
+                dev.state = MovementState.STOPPED_OFF
+                self.addOrUpdateDevice(dev, SelveTypes.IVEO)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._iveo_travel_tasks.pop(device_id, None)
+
     def _stop_movement_polling(self, device_id: int) -> None:
         """Cancel movement polling task for a device if one is active."""
         task = self._movement_tasks.pop(device_id, None)
@@ -1824,12 +1873,17 @@ class Selve:
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
             confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.UP)
-            self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             # Only claim the new position when the gateway confirmed at least
             # one transmission — otherwise HA shows a move that never happened.
             if confirmed:
                 self.setDeviceValue(device.id, 0, SelveTypes.IVEO)
                 self.setDeviceTargetValue(device.id, 0, SelveTypes.IVEO)
+                # Shutter is travelling now; the timer ends the movement state
+                # because IVEO never reports that it stopped.
+                self._start_iveo_travel_timer(device.id)
+            else:
+                # Nothing went out, so nothing is moving.
+                self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
 
     async def moveDeviceDown(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
@@ -1840,10 +1894,15 @@ class Selve:
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
             confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.DOWN)
-            self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             if confirmed:
                 self.setDeviceValue(device.id, 100, SelveTypes.IVEO)
                 self.setDeviceTargetValue(device.id, 100, SelveTypes.IVEO)
+                # Shutter is travelling now; the timer ends the movement state
+                # because IVEO never reports that it stopped.
+                self._start_iveo_travel_timer(device.id)
+            else:
+                # Nothing went out, so nothing is moving.
+                self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
 
     async def moveDevicePos1(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
@@ -1852,10 +1911,15 @@ class Selve:
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
             confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.POS1)
-            self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             if confirmed:
                 self.setDeviceValue(device.id, 66, SelveTypes.IVEO)
                 self.setDeviceTargetValue(device.id, 66, SelveTypes.IVEO)
+                # Shutter is travelling now; the timer ends the movement state
+                # because IVEO never reports that it stopped.
+                self._start_iveo_travel_timer(device.id)
+            else:
+                # Nothing went out, so nothing is moving.
+                self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
 
     async def moveDevicePos2(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
@@ -1864,10 +1928,15 @@ class Selve:
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
             confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.POS2)
-            self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             if confirmed:
                 self.setDeviceValue(device.id, 33, SelveTypes.IVEO)
                 self.setDeviceTargetValue(device.id, 33, SelveTypes.IVEO)
+                # Shutter is travelling now; the timer ends the movement state
+                # because IVEO never reports that it stopped.
+                self._start_iveo_travel_timer(device.id)
+            else:
+                # Nothing went out, so nothing is moving.
+                self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
 
     async def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
         await self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
@@ -1892,6 +1961,7 @@ class Selve:
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.STOP)
+            self._stop_iveo_travel_timer(device.id)
             self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
             if confirmed:
                 # IVEO gives no position feedback: after a stop the position

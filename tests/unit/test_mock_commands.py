@@ -148,7 +148,11 @@ class TestMockCommands(unittest.TestCase):
 
             # Check that device state was updated properly
             self.selve.setDeviceState.assert_any_call(2, MovementState.DOWN_ON, SelveTypes.IVEO)
-            self.selve.setDeviceState.assert_any_call(2, MovementState.STOPPED_OFF, SelveTypes.IVEO)
+            # No immediate STOPPED_OFF any more: the shutter is still moving.
+            # A travel timer ends the movement state, since IVEO never reports
+            # that it stopped.
+            self.assertIn(2, self.selve._iveo_travel_tasks)
+            self.selve._stop_iveo_travel_timer(2)
             self.selve.setDeviceValue.assert_called_with(2, 100, SelveTypes.IVEO)
             self.selve.setDeviceTargetValue.assert_called_with(2, 100, SelveTypes.IVEO)
 
