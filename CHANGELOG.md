@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.18] - 2026-10-04
+
+### Fixed
+- **Command methods no longer crash when the gateway does not answer** (homeassistant-selve#50): `executeCommandSyncWithResponse()` returns `False` on a timeout or a gateway fault, but 44 command methods read `response.executed` from it unconditionally — `iveoTeach`, `iveoLearn`, `iveoCommandManual` and many COMMEO/service commands died with `AttributeError: 'bool' object has no attribute 'executed'`, which in Home Assistant aborted the whole IVEO pairing flow. They now return `False` ("not executed"). A bare `True` is deliberately not passed through as success: it is no confirmation from the gateway.
+- **Gateway log events no longer flood the log** (homeassistant-selve#48): the gateway's own diagnostics were logged at the gateway's level, so every "COMMEO: Command overwritten" (a newer command replacing a pending one — normal operation) landed in the HA log as warning/error, thousands of times. Gateway events are now logged one level lower (info→debug, warning→info, error→warning) and "Command overwritten" always at debug. The events themselves are unchanged (`lastLogEvent`).
+
 ## [2.5.17] - 2026-07-30
 
 ### Fixed

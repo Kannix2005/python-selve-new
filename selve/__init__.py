@@ -584,6 +584,16 @@ class Selve:
                 return True
         return False
 
+    @staticmethod
+    def _executed(response) -> bool:
+        """The gateway's ``executed`` flag, or False when there is no reply.
+
+        ``executeCommandSyncWithResponse`` returns ``False`` instead of a
+        response object on a timeout or a gateway fault; reading
+        ``.executed`` from that crashed every command method (#50).
+        """
+        return bool(getattr(response, "executed", False))
+
     def _discard_pending_future(self, future):
         """Remove a future from the pending queue (caller gave up on it)."""
         for idx, (fut, _) in enumerate(self._pending_futures):
@@ -1353,15 +1363,22 @@ class Selve:
 
         if isinstance(response, LogEventResponse):
             self.lastLogEvent = response
-            if response.logType == LogType.INFO:
-                self._LOGGER.info(
-                    f'Gateway Log Info: {response.logCode} - {response.logStamp} - {response.logValue} - {response.logDescription}')
-            if response.logType == LogType.WARNING:
-                self._LOGGER.warning(
-                    f'Gateway Log Info: {response.logCode} - {response.logStamp} - {response.logValue} - {response.logDescription}')
-            if response.logType == LogType.ERROR:
-                self._LOGGER.error(
-                    f'Gateway Log Info: {response.logCode} - {response.logStamp} - {response.logValue} - {response.logDescription}')
+            # The gateway's own diagnostics, not faults of this library —
+            # logged one level lower than the gateway rates them. "Command
+            # overwritten" only means a newer command replaced a pending one
+            # (normal operation); at any level it flooded the HA log (#48).
+            level, label = {
+                LogType.INFO: (logging.DEBUG, "Info"),
+                LogType.WARNING: (logging.INFO, "Warning"),
+                LogType.ERROR: (logging.WARNING, "Error"),
+            }.get(response.logType, (logging.INFO, "Info"))
+            if "overwritten" in response.logDescription.lower():
+                level = logging.DEBUG
+            self._LOGGER.log(
+                level, "Gateway Log %s: %s - %s - %s - %s", label,
+                response.logCode, response.logStamp, response.logValue,
+                response.logDescription,
+            )
 
         if isinstance(response, DutyCycleResponse):
             self.sendingBlocked = response.mode
@@ -1501,7 +1518,7 @@ class Selve:
     async def resetGateway(self):
         command = ServiceReset()
         response: ServiceResetResponse = await self.executeCommandSyncWithResponse(command)
-        if response.executed is not True:
+        if self._executed(response) is not True:
             self._LOGGER.info("Error: Gateway could not be reset or loads too long")
 
         # time.sleep(2)
@@ -1517,7 +1534,7 @@ class Selve:
     async def factoryResetGateway(self):
         command = ServiceFactoryReset()
         response: ServiceFactoryResetResponse = await self.executeCommandSyncWithResponse(command)
-        if response.executed is not True:
+        if self._executed(response) is not True:
             self._LOGGER.info("Error: Gateway could not be reset or loads too long")
 
         start_time = time.time()
@@ -1527,12 +1544,12 @@ class Selve:
                 break
             await asyncio.sleep(0.1)
         self._LOGGER.info("Gateway factory reset")
-        return response.executed
+        return self._executed(response)
 
     async def setLED(self, state: bool):
         command = ServiceSetLed(state)
         response: ServiceSetLedResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def getLED(self):
         command = ServiceGetLed()
@@ -1543,7 +1560,7 @@ class Selve:
     async def setForward(self, state: bool):
         command = ParamSetForward(state)
         response: ParamSetForwardResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def getForward(self):
         command = ParamGetForward()
@@ -1574,12 +1591,12 @@ class Selve:
     async def setDuty(self, mode: int):
         command = ParamSetDuty(mode)
         response: ParamSetDutyResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def setRF(self, netAddress: int, resetCount: int):
         command = ParamSetRf(netAddress, resetCount)
         response: ParamSetRfResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def getTemperature(self):
         command = ParamGetTemperature()
@@ -1592,12 +1609,12 @@ class Selve:
     async def scanStart(self):
         command = DeviceScanStart()
         response: DeviceScanStartResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def scanStop(self):
         command = DeviceScanStop()
         response: DeviceScanStopResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def scanResult(self):
         """ manually polls the scan state, but the states are being reported automatically by the gateway itself"""
@@ -1608,7 +1625,7 @@ class Selve:
     async def deviceSave(self, id: int):
         command = DeviceSave(id)
         response: DeviceSaveResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def deviceGetIds(self):
         command = DeviceGetIds()
@@ -1628,27 +1645,27 @@ class Selve:
     async def deviceSetFunction(self, id: int, function: DeviceFunctions):
         command = DeviceSetFunction(id, function)
         response: DeviceSetFunctionResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def deviceSetLabel(self, id: int, label: str):
         command = DeviceSetLabel(id, label)
         response: DeviceSetLabelResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def deviceSetType(self, id: int, type: DeviceType):
         command = DeviceSetType(id, type)
         response: DeviceSetTypeResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def deviceDelete(self, id: int):
         command = DeviceDelete(id)
         response: DeviceDeleteResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def deviceWriteManual(self, id: int, address: int, name: str, config: DeviceType):
         command = DeviceWriteManual(id, address, name, config)
         response: DeviceWriteManualResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def deviceSavePos1(self, device: SelveDevice, type=DeviceCommandType.MANUAL):
         """Save current position as Position 1 for the device."""
@@ -1979,7 +1996,7 @@ class Selve:
     async def groupWrite(self, id: int, actorIds: dict, name: str):
         command = GroupWrite(id, actorIds, name)
         response: GroupWriteResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def groupGetIds(self):
         command = GroupGetIds()
@@ -1989,7 +2006,7 @@ class Selve:
     async def groupDelete(self, id: int):
         command = GroupDelete(id)
         response: GroupDeleteResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def moveGroupUp(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
         await self.executeCommandSyncWithResponse(CommandDriveUpGroup(group.id, type))
@@ -2024,7 +2041,7 @@ class Selve:
         """
         command = IveoSetRepeater(repeaterInstalled)
         response: IveoSetRepeaterResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def iveoGetRepeater(self):
         """
@@ -2041,7 +2058,7 @@ class Selve:
     async def iveoSetLabel(self, id: int, label: str):
         command = IveoSetLabel(id, label)
         response: IveoSetLabelResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def iveoSetType(self, id: int, activity: int, type: DeviceType):
         """
@@ -2053,7 +2070,7 @@ class Selve:
         """
         command = IveoSetConfig(id, activity, type)
         response: IveoSetConfigResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def iveoGetType(self, id: int):
         """
@@ -2080,27 +2097,27 @@ class Selve:
     async def iveoFactoryReset(self, id: int):
         command = IveoFactory(id)
         response: IveoFactoryResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def iveoTeach(self, id: int):
         command = IveoTeach(id)
         response: IveoTeachResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def iveoLearn(self, id: int):
         command = IveoLearn(id)
         response: IveoLearnResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def iveoCommandManual(self, actorId: int, command: DriveCommandIveo):
         command = IveoManual(actorId, command)
         response: IveoManualResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def iveoCommandAutomatic(self, actorId: int, command: DriveCommandIveo):
         command = IveoAutomatic(actorId, command)
         response: IveoAutomaticResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def iveoCommandResult(self):
         """Query the result of the last iveo command execution."""
@@ -2114,12 +2131,12 @@ class Selve:
     async def sensorTeachStart(self):
         command = SensorTechStart()
         response: SensorTeachStartResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def sensorTeachStop(self):
         command = SensorTeachStop()
         response: SensorTeachStopResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def sensorTeachResult(self):
         """ manually polls the teach result state, but the states are being reported automatically by the gateway itself"""
@@ -2145,17 +2162,17 @@ class Selve:
     async def sensorSetLabel(self, id: int, label: str):
         command = SensorSetLabel(id, label)
         response: SensorSetLabelResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def sensorDelete(self, id: int):
         command = SensorDelete(id)
         response: SensorDeleteResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def sensorWriteManual(self, id: int, address: int, name: str):
         command = SensorWriteManual(id, address, name)
         response: SensorWriteManualResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def updateSensorValuesAsync(self, id: int):
         await self.executeCommand(SensorGetValues(id))
@@ -2176,7 +2193,7 @@ class Selve:
     async def senSimSetConfig(self, id: int, activity: bool):
         command = SenSimSetConfig(id, activity)
         response: SenSimSetConfigResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senSimGetValues(self, id: int):
         command = SenSimGetValues(id)
@@ -2190,32 +2207,32 @@ class Selve:
                                   tempAnalog, windAnalog, sun1Analog, dayLightAnalog,
                                   sun2Analog, sun3Analog)
         response: SenSimSetValuesResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senSimSetLabel(self, id: int, label: str):
         command = SenSimSetLabel(id, label)
         response: SenSimSetLabelResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senSimDrive(self, id: int, driveCommand: SenSimCommandType):
         command = SenSimDrive(id, driveCommand)
         response: SenSimDriveResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senSimStore(self, id: int, actorId: int):
         command = SenSimStore(id, actorId)
         response: SenSimStoreResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senSimDelete(self, id: int, actorId: int):
         command = SenSimDelete(id, actorId)
         response: SenSimDeleteResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senSimFactory(self, id: int):
         command = SenSimFactory(id)
         response: SenSimFactoryResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senSimGetTest(self, id: int):
         command = SenSimGetTest(id)
@@ -2225,7 +2242,7 @@ class Selve:
     async def senSimSetTest(self, id: int, testMode: int):
         command = SenSimSetTest(id, testMode)
         response: SenSimSetTestResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def updateSenSimValuesAsync(self, id: int):
         await self.executeCommand(SenSimGetValues(id))
@@ -2240,18 +2257,18 @@ class Selve:
     async def firmwareUpdate(self):
         command = FirmwareUpdate()
         response: FirmwareUpdateResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     ### Sender
     async def senderTeachStart(self):
         command = SenderTeachStart()
         response: SenderTeachStartResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senderTeachStop(self):
         command = SenderTeachStop()
         response: SenderTeachStopResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senderTeachResult(self):
         """ manually polls the teach result state, but the states are being reported automatically by the gateway itself"""
@@ -2277,17 +2294,17 @@ class Selve:
     async def senderSetLabel(self, id: int, label: str):
         command = SenderSetLabel(id, label)
         response: SenderSetLabelResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senderDelete(self, id: int):
         command = SenderDelete(id)
         response: SenderDeleteResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
     async def senderWriteManual(self, id: int, address: int, channel: int, resetCount: int, name: str):
         command = SenderWriteManual(id, address, channel, resetCount, name)
         response: SenderWriteManualResponse = await self.executeCommandSyncWithResponse(command)
-        return response.executed
+        return self._executed(response)
 
 
 
