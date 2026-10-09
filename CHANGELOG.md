@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.19] - 2026-10-09
+
+### Fixed
+- **Commeo drive commands that the gateway reports as failed are now re-sent automatically.** When several covers were driven at the same moment, the gateway logged "COMMEO: Radio line is busy (01)" and one cover never moved. Devices the gateway reports in `failedIds` of the `command.result` event were only marked unreachable, so their command was silently lost. The last Commeo drive command per device is now remembered; on a failed result it is re-sent up to 2 times (backoff 1.5 s x attempt plus 0.4 s stagger per failed device so they do not collide again), only within 30 s of sending. A success result, or a newer command for the same device, drops the pending entry. IVEO (one-way) is untouched.
+
 ## [2.5.18] - 2026-10-04
 
 ### Fixed

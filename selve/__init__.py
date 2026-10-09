@@ -80,6 +80,14 @@ _IVEO_TRAVEL_TIME = 30.0
 _DUTY_CYCLE_WAIT = 5.0
 
 
+# Automatic retry of Commeo drive commands the gateway reports as failed
+# (e.g. "COMMEO: Radio line is busy" when several covers are driven at once).
+COMMEO_RETRY_MAX = 2          # re-sends per command
+COMMEO_RETRY_BASE_DELAY = 1.5  # seconds, multiplied by the attempt number
+COMMEO_RETRY_STAGGER = 0.4    # seconds per position in failedIds
+COMMEO_RETRY_WINDOW = 30      # seconds a result may arrive after sending
+
+
 class Selve:
     """Implementation of the serial communication to the Selve Gateway"""
 
@@ -155,6 +163,11 @@ class Selve:
 
         # Active movement polling tasks keyed by device id
         self._movement_tasks: dict = {}
+
+        # Last Commeo drive command per device id, kept until the gateway
+        # reports its result: {id: {"command", "attempts", "sent_at"}}
+        self._commeo_pending: dict = {}
+        self._commeo_retry_tasks: set = set()
 
         # IVEO has no return channel: the gateway only confirms that it sent
         # the telegram, never that the shutter stopped. Without a timer the
@@ -1408,6 +1421,7 @@ class Selve:
 
         elif isinstance(response, CommandResultResponse):
             for id in response.successIds:
+                self._commeo_pending.pop(id, None)
                 dev = self.getDevice(id, SelveTypes.DEVICE)
                 if dev is None:
                     continue
@@ -1423,7 +1437,8 @@ class Selve:
                 elif response.command is DriveCommandCommeo.STEPUP:
                     dev.state = MovementState.UP_ON
                 self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
-            for id in response.failedIds:
+            for position, id in enumerate(response.failedIds):
+                self._schedule_commeo_retry(id, position)
                 dev = self.getDevice(id, SelveTypes.DEVICE)
                 if dev is None:
                     continue
@@ -1750,6 +1765,58 @@ class Selve:
         dev.state = state
         self.addOrUpdateDevice(dev, type)
 
+    def _track_commeo_command(self, device_id: int, command) -> None:
+        """Remember the last Commeo drive command so it can be re-sent if the gateway reports it failed."""
+        self._commeo_pending[device_id] = {
+            "command": command,
+            "attempts": 0,
+            "sent_at": time.monotonic(),
+        }
+
+    def _schedule_commeo_retry(self, device_id: int, position: int) -> None:
+        """Re-send a failed Commeo command after a backoff, if still allowed."""
+        entry = self._commeo_pending.get(device_id)
+        if entry is None:
+            return
+        if time.monotonic() - entry["sent_at"] > COMMEO_RETRY_WINDOW:
+            self._commeo_pending.pop(device_id, None)
+            return
+        if entry["attempts"] >= COMMEO_RETRY_MAX:
+            self._LOGGER.warning(
+                "Commeo command for device %s failed, giving up after %d retries",
+                device_id, COMMEO_RETRY_MAX,
+            )
+            self._commeo_pending.pop(device_id, None)
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no running event loop (unit tests, etc.)
+        entry["attempts"] += 1
+        attempt = entry["attempts"]
+        self._LOGGER.info(
+            "Commeo command for device %s failed (gateway reported), retry %d/%d",
+            device_id, attempt, COMMEO_RETRY_MAX,
+        )
+        delay = COMMEO_RETRY_BASE_DELAY * attempt + COMMEO_RETRY_STAGGER * position
+        task = loop.create_task(
+            self._commeo_retry(device_id, entry["command"], delay)
+        )
+        self._commeo_retry_tasks.add(task)
+        task.add_done_callback(self._commeo_retry_tasks.discard)
+
+    async def _commeo_retry(self, device_id: int, command, delay: float) -> None:
+        await asyncio.sleep(delay)
+        entry = self._commeo_pending.get(device_id)
+        if entry is None or entry["command"] is not command:
+            return  # superseded by a newer command or already succeeded
+        try:
+            await self.executeCommand(command)
+        except Exception:
+            self._LOGGER.exception("Retry of Commeo command for device %s failed", device_id)
+            return
+        self._start_movement_polling(device_id)
+
     def _start_movement_polling(self, device_id: int) -> None:
         """Start a background task that polls device values every 0.5 s during movement."""
         self._stop_movement_polling(device_id)
@@ -1883,7 +1950,9 @@ class Selve:
 
     async def moveDeviceUp(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommand(CommandDriveUp(device.id, type))
+            cmd = CommandDriveUp(device.id, type)
+            self._track_commeo_command(device.id, cmd)
+            await self.executeCommand(cmd)
             device.state = MovementState.UP_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             self._start_movement_polling(device.id)
@@ -1904,7 +1973,9 @@ class Selve:
 
     async def moveDeviceDown(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommand(CommandDriveDown(device.id, type))
+            cmd = CommandDriveDown(device.id, type)
+            self._track_commeo_command(device.id, cmd)
+            await self.executeCommand(cmd)
             device.state = MovementState.DOWN_ON
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
             self._start_movement_polling(device.id)
@@ -1923,7 +1994,9 @@ class Selve:
 
     async def moveDevicePos1(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommand(CommandDrivePos1(device.id, type))
+            cmd = CommandDrivePos1(device.id, type)
+            self._track_commeo_command(device.id, cmd)
+            await self.executeCommand(cmd)
             self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.UP_ON, SelveTypes.IVEO)
@@ -1940,7 +2013,9 @@ class Selve:
 
     async def moveDevicePos2(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
-            await self.executeCommand(CommandDrivePos2(device.id, type))
+            cmd = CommandDrivePos2(device.id, type)
+            self._track_commeo_command(device.id, cmd)
+            await self.executeCommand(cmd)
             self._start_movement_polling(device.id)
         else:
             self.setDeviceState(device.id, MovementState.DOWN_ON, SelveTypes.IVEO)
@@ -1956,17 +2031,23 @@ class Selve:
                 self.setDeviceState(device.id, MovementState.STOPPED_OFF, SelveTypes.IVEO)
 
     async def moveDevicePos(self, device: SelveDevice, pos: int = 0, type=DeviceCommandType.MANUAL):
-        await self.executeCommand(CommandDrivePos(device.id, type, param=Util.percentageToValue(pos)))
+        cmd = CommandDrivePos(device.id, type, param=Util.percentageToValue(pos))
+        self._track_commeo_command(device.id, cmd)
+        await self.executeCommand(cmd)
         self._start_movement_polling(device.id)
 
     async def moveDeviceStepUp(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        await self.executeCommand(CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees)))
+        cmd = CommandDriveStepUp(device.id, type, param=Util.degreesToValue(degrees))
+        self._track_commeo_command(device.id, cmd)
+        await self.executeCommand(cmd)
         device.state = MovementState.UP_ON
         self.addOrUpdateDevice(device, SelveTypes.DEVICE)
         self._start_movement_polling(device.id)
 
     async def moveDeviceStepDown(self, device: SelveDevice, degrees: int = 0, type=DeviceCommandType.MANUAL):
-        await self.executeCommand(CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees)))
+        cmd = CommandDriveStepDown(device.id, type, param=Util.degreesToValue(degrees))
+        self._track_commeo_command(device.id, cmd)
+        await self.executeCommand(cmd)
         device.state = MovementState.DOWN_ON
         self.addOrUpdateDevice(device, SelveTypes.DEVICE)
         self._start_movement_polling(device.id)
@@ -1974,7 +2055,9 @@ class Selve:
     async def stopDevice(self, device: SelveDevice | IveoDevice, type=DeviceCommandType.MANUAL):
         if device.communicationType is CommunicationType.COMMEO:
             self._stop_movement_polling(device.id)
-            await self.executeCommand(CommandStop(device.id, type))
+            cmd = CommandStop(device.id, type)
+            self._track_commeo_command(device.id, cmd)
+            await self.executeCommand(cmd)
             await self.updateCommeoDeviceValuesAsync(device.id)
         else:
             confirmed = await self._send_iveo_command(device.id, DriveCommandIveo.STOP)
