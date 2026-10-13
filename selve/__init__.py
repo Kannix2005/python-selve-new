@@ -80,6 +80,22 @@ _IVEO_TRAVEL_TIME = 30.0
 _DUTY_CYCLE_WAIT = 5.0
 
 
+# Minimum gap between two RF drive transmissions (Commeo device/group commands,
+# IVEO manual/automatic), shared across devices and protocols. Live debug log:
+# drives for different covers went out ~50 ms apart and the gateway answered
+# "COMMEO: Command overwritten" / "Radio line is busy" — the covers stayed put.
+RF_SEND_SPACING = 1.0
+_RF_DRIVE_METHODS = frozenset({
+    "selve.GW.command.device", "selve.GW.command.group",
+    "selve.GW.command.groupMan",
+    "selve.GW.iveo.commandManual", "selve.GW.iveo.commandAutomatic",
+})
+
+
+def _is_rf_drive(command) -> bool:
+    return getattr(command, "method_name", None) in _RF_DRIVE_METHODS
+
+
 # Automatic retry of Commeo drive commands the gateway reports as failed
 # (e.g. "COMMEO: Radio line is busy" when several covers are driven at once).
 COMMEO_RETRY_MAX = 2          # re-sends per command
@@ -103,7 +119,6 @@ _COMMEO_VERIFIED_DRIVES = frozenset({
     DriveCommandCommeo.DRIVEUP, DriveCommandCommeo.DRIVEDOWN,
     DriveCommandCommeo.DRIVEPOS,
 })
-_COMMEO_MOVING = (MovementState.UP_ON, MovementState.DOWN_ON)
 
 
 class Selve:
@@ -191,6 +206,11 @@ class Selve:
         # Monotonic time of the latest scheduled re-send, used to space
         # re-sends of different devices so they do not collide on air again.
         self._commeo_retry_slot = 0.0
+        # RF send pacing: slot reserved by the latest caller (keeps drives out
+        # of the TX queue until their turn, so other traffic is not held up)
+        # and time of the latest RF write (guard in the TX loop).
+        self._rf_slot = 0.0
+        self._rf_last_write = 0.0
 
         # IVEO has no return channel: the gateway only confirms that it sent
         # the telegram, never that the shutter stopped. Without a timer the
@@ -443,7 +463,16 @@ class Selve:
                         (future, getattr(command, "method_name", None))
                     )
 
+                rf = _is_rf_drive(command)
+                if rf:
+                    # Write-time guard: commands may have queued up behind a
+                    # slow response and would otherwise go out back to back.
+                    wait = self._rf_last_write + RF_SEND_SPACING - time.monotonic()
+                    if wait > 0:
+                        await asyncio.sleep(wait)
                 await self._sendCommandToGateway(command)
+                if rf:
+                    self._rf_last_write = time.monotonic()
 
                 if future is not None:
                     # Pace transmissions by the response instead of a fixed
@@ -1058,8 +1087,23 @@ class Selve:
         # Any other response (unknown)
         return MethodResponse(methodName, flat_params_list)
 
+    async def _await_rf_slot(self, command) -> None:
+        """Hold an RF drive command back until RF_SEND_SPACING after the
+        previous one. Slots are reserved first-come-first-served, so order is
+        kept and nothing is dropped; non-RF commands pass straight through."""
+        if not _is_rf_drive(command):
+            return
+        now = time.monotonic()
+        slot = max(now, self._rf_slot + RF_SEND_SPACING)
+        self._rf_slot = slot
+        if slot > now:
+            self._LOGGER.debug("RF spacing: holding %s for %.2fs",
+                               command.method_name, slot - now)
+            await asyncio.sleep(slot - now)
+
     async def executeCommand(self, command: Command):
         await self.startWorker()
+        await self._await_rf_slot(command)
         await self.txQ.put((command, None))
 
 
@@ -1079,6 +1123,7 @@ class Selve:
 
     async def _executeCommandSyncWithResponse(self, command: Command):
         await self.startWorker()
+        await self._await_rf_slot(command)
         loop = self.loop or asyncio.get_running_loop()
         future = loop.create_future()
         await self.txQ.put((command, future))
@@ -1872,9 +1917,25 @@ class Selve:
         if entry is None or entry["drive"] not in _COMMEO_VERIFIED_DRIVES:
             return
         entry["gw_state"] = getattr(dev, "state", None)
-        current = self._commeo_raw_position(dev)
-        if entry["start"] is not None and current is not None and current != entry["start"]:
+        if self._commeo_progress(entry, self._commeo_raw_position(dev)) >= COMMEO_VERIFY_TOLERANCE:
             entry["moved"] = True
+
+    @staticmethod
+    def _commeo_direction(entry) -> int:
+        """+1 if the target is further closed (raw value grows, DOWN_ON),
+        -1 if it is further open (UP_ON), 0 if unknown/already there."""
+        start, target = entry["start"], entry["target"]
+        if start is None or target is None or target == start:
+            return 0
+        return 1 if target > start else -1
+
+    def _commeo_progress(self, entry, current) -> int:
+        """Percent travelled from the start position toward the target
+        (negative = away from it). Gateway jitter of 1 % does not count."""
+        direction = self._commeo_direction(entry)
+        if direction == 0 or current is None:
+            return 0
+        return (current - entry["start"]) * direction
 
     def _on_commeo_success(self, device_id: int, result_command, position: int) -> None:
         entry = self._commeo_pending.get(device_id)
@@ -1956,9 +2017,16 @@ class Selve:
                 self._commeo_pending.pop(device_id, None)
         except asyncio.CancelledError:
             pass
+        except Exception:
+            self._LOGGER.exception("Movement check for Commeo device %s failed", device_id)
+            entry = self._commeo_pending.get(device_id)
+            if entry is not None and entry["command"] is command:
+                self._commeo_pending.pop(device_id, None)
 
     def _commeo_verify_outcome(self, device_id: int, entry) -> str:
-        if entry["moved"] or entry["gw_state"] in _COMMEO_MOVING:
+        direction = self._commeo_direction(entry)
+        expected_state = {1: MovementState.DOWN_ON, -1: MovementState.UP_ON}.get(direction)
+        if entry["moved"] or (expected_state is not None and entry["gw_state"] is expected_state):
             return "moved"
         current = self._commeo_raw_position(self.getDevice(device_id, SelveTypes.DEVICE))
         if current is None or entry["start"] is None:

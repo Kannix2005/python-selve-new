@@ -323,3 +323,75 @@ class TestCommeoVerify:
         assert 3 not in s._commeo_pending
         await asyncio.sleep(0.15)
         assert s.executeCommand.await_count == 1
+
+
+class TestCommeoVerifyDirection:
+    """Only movement toward the target counts — gateway position jitter
+    (e.g. 81 -> 80 after DRIVEUP that never moved) must not."""
+
+    @pytest.mark.parametrize("reported", [
+        (MovementState.STOPPED_OFF, 80),   # 1 step toward target: below tolerance
+        (MovementState.STOPPED_OFF, 84),   # away from the target
+        (MovementState.DOWN_ON, 81),       # moving, but in the wrong direction
+    ])
+    async def test_jitter_or_wrong_direction_is_resent(self, reported):
+        s = _make_selve({0: reported})
+        d = _device(s, 0, 81)
+        await s.moveDeviceUp(d)
+        s._handleCommandResult(_result(UP, success=[0]))
+        await asyncio.sleep(0.15)
+        await _settle(s)
+        assert s.executeCommand.await_count >= 2
+
+    async def test_event_jitter_does_not_latch_moved(self):
+        s = _make_selve({0: (MovementState.STOPPED_OFF, 80)})
+        d = _device(s, 0, 81)
+        await s.moveDeviceUp(d)
+        s._handleCommandResult(_result(UP, success=[0]))
+        _report(s, 0, MovementState.STOPPED_OFF, 80)
+        assert s._commeo_pending[0]["moved"] is False
+
+    @pytest.mark.parametrize("call,start,reported", [
+        ("up", 81, (MovementState.STOPPED_OFF, 78)),
+        ("down", 20, (MovementState.STOPPED_OFF, 23)),
+        ("down", 20, (MovementState.DOWN_ON, 20)),
+        ("pos", 81, (MovementState.STOPPED_OFF, 70)),   # DRIVEPOS 40 = upward
+    ])
+    async def test_correct_direction_above_tolerance_is_moved(self, call, start, reported):
+        s = _make_selve({0: reported})
+        d = _device(s, 0, start)
+        fn = {"up": lambda: s.moveDeviceUp(d), "down": lambda: s.moveDeviceDown(d),
+              "pos": lambda: s.moveDevicePos(d, 40)}[call]
+        await fn()
+        drive = {"up": UP, "down": DriveCommandCommeo.DRIVEDOWN,
+                 "pos": DriveCommandCommeo.DRIVEPOS}[call]
+        s._handleCommandResult(_result(drive, success=[0]))
+        await asyncio.sleep(0.15)
+        await _settle(s)
+        assert s.executeCommand.await_count == 1
+
+    async def test_direction_respects_reversed_mapping(self):
+        # reversedStopPosition stores 100 - raw; raw 81 -> 78 is still "up".
+        s = _make_selve({0: (MovementState.STOPPED_OFF, 78)})
+        s.reversedStopPosition = 1
+        d = _device(s, 0, 19)
+        await s.moveDeviceUp(d)
+        s._handleCommandResult(_result(UP, success=[0]))
+        await asyncio.sleep(0.15)
+        await _settle(s)
+        assert s.executeCommand.await_count == 1
+
+    async def test_unexpected_error_in_verify_is_logged_and_cleared(self, monkeypatch):
+        s = _make_selve({0: (MovementState.STOPPED_OFF, 81)})
+        d = _device(s, 0, 81)
+
+        def boom(*a, **k):
+            raise ValueError("bug")
+        monkeypatch.setattr(s, "_commeo_verify_outcome", boom)
+        await s.moveDeviceUp(d)
+        s._handleCommandResult(_result(UP, success=[0]))
+        await asyncio.sleep(0.15)
+        await _settle(s)
+        s._LOGGER.exception.assert_called_once()
+        assert 0 not in s._commeo_pending
+        assert s._commeo_verify_tasks == {}
