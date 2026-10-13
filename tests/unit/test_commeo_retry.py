@@ -22,6 +22,7 @@ from selve.util.protocol import (
 def fast_delays(monkeypatch):
     monkeypatch.setattr(selve_mod, "COMMEO_RETRY_BASE_DELAY", 0.02)
     monkeypatch.setattr(selve_mod, "COMMEO_RETRY_STAGGER", 0.05)
+    monkeypatch.setattr(selve_mod, "COMMEO_RETRY_SPACING", 0.0)
 
 
 def _make_selve():
@@ -62,14 +63,27 @@ class TestCommeoRetry:
         s._start_movement_polling.assert_called_with(3)
 
     async def test_success_clears_pending(self):
+        # A STOP needs no movement check: its success result ends tracking.
         s = _make_selve()
-        await s.moveDeviceUp(_dev(3))
+        s.updateCommeoDeviceValuesAsync = AsyncMock()
+        await s.stopDevice(_dev(3))
         assert 3 in s._commeo_pending
-        s._handleCommandResult(_result(success=[3]))
+        r = _result(success=[3])
+        r.command = DriveCommandCommeo.STOP
+        s._handleCommandResult(r)
         assert 3 not in s._commeo_pending
         s._handleCommandResult(_result(failed=[3]))
         await _drain(s)
         assert s.executeCommand.await_count == 1
+
+    async def test_drive_success_kept_for_movement_check(self):
+        s = _make_selve()
+        await s.moveDeviceDown(_dev(3))
+        s._handleCommandResult(_result(success=[3]))
+        assert 3 in s._commeo_pending
+        assert 3 in s._commeo_verify_tasks
+        s._cancel_commeo_pending(3)
+        assert s._commeo_verify_tasks == {}
 
     async def test_retries_capped_then_warning(self):
         s = _make_selve()

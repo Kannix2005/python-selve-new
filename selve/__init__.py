@@ -86,6 +86,24 @@ COMMEO_RETRY_MAX = 2          # re-sends per command
 COMMEO_RETRY_BASE_DELAY = 1.5  # seconds, multiplied by the attempt number
 COMMEO_RETRY_STAGGER = 0.4    # seconds per position in failedIds
 COMMEO_RETRY_WINDOW = 30      # seconds a result may arrive after sending
+COMMEO_RETRY_SPACING = 1.0    # min. seconds between any two re-sends (all devices)
+
+# Movement verification: the gateway may confirm a Commeo command in
+# successIds although the telegram was lost on air ("COMMEO: Radio line is
+# busy" log event) — the cover then never moves. After a reported success the
+# library checks that the cover actually moved and re-sends otherwise.
+COMMEO_VERIFY_DELAY = 4.0       # seconds after the success result
+COMMEO_VERIFY_BUSY_DELAY = 1.5  # seconds after a "Radio line is busy" log event
+COMMEO_VERIFY_BUSY_LOOKBACK = 10.0  # commands sent this recently are verified early
+COMMEO_VERIFY_TOLERANCE = 2     # percent: "target already reached"
+# Only idempotent drives with a known target are verified: re-sending a STEP
+# after a missed short movement would step twice, and DRIVEPOS1/2 targets are
+# stored in the motor, so "already there" cannot be told apart from "lost".
+_COMMEO_VERIFIED_DRIVES = frozenset({
+    DriveCommandCommeo.DRIVEUP, DriveCommandCommeo.DRIVEDOWN,
+    DriveCommandCommeo.DRIVEPOS,
+})
+_COMMEO_MOVING = (MovementState.UP_ON, MovementState.DOWN_ON)
 
 
 class Selve:
@@ -168,6 +186,11 @@ class Selve:
         # reports its result: {id: {"command", "attempts", "sent_at"}}
         self._commeo_pending: dict = {}
         self._commeo_retry_tasks: set = set()
+        # Pending movement verifications: {id: (task, due monotonic time)}
+        self._commeo_verify_tasks: dict = {}
+        # Monotonic time of the latest scheduled re-send, used to space
+        # re-sends of different devices so they do not collide on air again.
+        self._commeo_retry_slot = 0.0
 
         # IVEO has no return channel: the gateway only confirms that it sent
         # the telegram, never that the shutter stopped. Without a timer the
@@ -1340,6 +1363,7 @@ class Selve:
             device.device_type = response.deviceType
 
             self.addOrUpdateDevice(device, SelveTypes.DEVICE)
+            self._note_commeo_feedback(device.id, device)
             if device.state == MovementState.STOPPED_OFF:
                 self._stop_movement_polling(device.id)
 
@@ -1392,6 +1416,8 @@ class Selve:
                 response.logCode, response.logStamp, response.logValue,
                 response.logDescription,
             )
+            if "radio line is busy" in str(response.logDescription).lower():
+                self._on_commeo_radio_busy()
 
         if isinstance(response, DutyCycleResponse):
             self.sendingBlocked = response.mode
@@ -1420,8 +1446,8 @@ class Selve:
                 self.addOrUpdateDevice(dev, SelveTypes.IVEO)
 
         elif isinstance(response, CommandResultResponse):
-            for id in response.successIds:
-                self._commeo_pending.pop(id, None)
+            for position, id in enumerate(response.successIds):
+                self._on_commeo_success(id, response.command, position)
                 dev = self.getDevice(id, SelveTypes.DEVICE)
                 if dev is None:
                     continue
@@ -1438,6 +1464,7 @@ class Selve:
                     dev.state = MovementState.UP_ON
                 self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
             for position, id in enumerate(response.failedIds):
+                self._cancel_commeo_verify(id)
                 self._schedule_commeo_retry(id, position)
                 dev = self.getDevice(id, SelveTypes.DEVICE)
                 if dev is None:
@@ -1739,6 +1766,7 @@ class Selve:
         dev.freezingAlarm = response.freezingAlarm if response.freezingAlarm else False
         dev.dayMode = response.dayMode if response.dayMode else False
         self.addOrUpdateDevice(dev, SelveTypes.DEVICE)
+        self._note_commeo_feedback(id, dev)
         if dev is not None and dev.state == MovementState.STOPPED_OFF:
             self._stop_movement_polling(id)
 
@@ -1765,26 +1793,195 @@ class Selve:
         dev.state = state
         self.addOrUpdateDevice(dev, type)
 
+    # --- Commeo command tracking: retry on failure, verify movement on success
+
+    def _commeo_raw_position(self, dev) -> int | None:
+        """Position in gateway terms (0 = fully open/up, 100 = fully closed/down).
+
+        ``dev.value`` is stored inverted when ``reversedStopPosition`` is set;
+        commands (DRIVEUP/DRIVEDOWN/DRIVEPOS) always use the gateway's scale.
+        """
+        value = getattr(dev, "value", None) if dev is not None else None
+        if value is None:
+            return None
+        return value if self.reversedStopPosition == 0 else 100 - value
+
+    @staticmethod
+    def _commeo_drive_and_target(command):
+        """(DriveCommandCommeo, target in gateway percent or None) of a command."""
+        try:
+            drive = DriveCommandCommeo(int(command.parameters[1][1]))
+        except Exception:
+            return None, None
+        if drive in (DriveCommandCommeo.DRIVEUP, DriveCommandCommeo.STEPUP):
+            return drive, 0
+        if drive in (DriveCommandCommeo.DRIVEDOWN, DriveCommandCommeo.STEPDOWN):
+            return drive, 100
+        if drive is DriveCommandCommeo.DRIVEPOS:
+            try:
+                return drive, Util.valueToPercentage(int(command.parameters[3][1]))
+            except Exception:
+                return drive, None
+        return drive, None  # STOP, DRIVEPOS1/2 (saved positions are unknown)
+
     def _track_commeo_command(self, device_id: int, command) -> None:
-        """Remember the last Commeo drive command so it can be re-sent if the gateway reports it failed."""
+        """Remember the last Commeo command so it can be re-sent if the gateway
+        reports it failed, or if the cover did not move after a reported success."""
+        self._cancel_commeo_verify(device_id)
+        drive, target = self._commeo_drive_and_target(command)
+        now = time.monotonic()
         self._commeo_pending[device_id] = {
             "command": command,
+            "drive": drive,
+            "target": target,
+            "start": self._commeo_raw_position(self.getDevice(device_id, SelveTypes.DEVICE)),
             "attempts": 0,
-            "sent_at": time.monotonic(),
+            "sent_at": now,
+            "last_sent": now,
+            "moved": False,       # gateway reported a position change
+            "gw_state": None,     # last movement state reported by the gateway
+            "retry_pending": False,
         }
 
-    def _schedule_commeo_retry(self, device_id: int, position: int) -> None:
-        """Re-send a failed Commeo command after a backoff, if still allowed."""
+    def _cancel_commeo_pending(self, device_id: int) -> None:
+        """Forget a device's pending command (superseded, e.g. by a group command)."""
+        self._cancel_commeo_verify(device_id)
+        self._commeo_pending.pop(device_id, None)
+
+    def _cancel_commeo_pending_for_group(self, group) -> None:
+        """A group command supersedes pending single-device commands of its
+        members; a later re-send of those would undo it."""
+        try:
+            ids = Util.b64bytes_to_bitobject(group.mask)
+        except Exception:
+            return  # unreadable mask: the group command itself reports it
+        for key, value in ids.items():
+            if value:
+                self._cancel_commeo_pending(key)
+
+    def _cancel_commeo_verify(self, device_id: int) -> None:
+        item = self._commeo_verify_tasks.pop(device_id, None)
+        if item is not None and not item[0].done():
+            item[0].cancel()
+
+    def _note_commeo_feedback(self, device_id: int, dev) -> None:
+        """Record gateway-sourced values (device event / DeviceGetValues) for a
+        pending verification. Only these count as evidence of movement — the
+        optimistic UP_ON/DOWN_ON set by the library itself must not."""
+        entry = self._commeo_pending.get(device_id)
+        if entry is None or entry["drive"] not in _COMMEO_VERIFIED_DRIVES:
+            return
+        entry["gw_state"] = getattr(dev, "state", None)
+        current = self._commeo_raw_position(dev)
+        if entry["start"] is not None and current is not None and current != entry["start"]:
+            entry["moved"] = True
+
+    def _on_commeo_success(self, device_id: int, result_command, position: int) -> None:
         entry = self._commeo_pending.get(device_id)
         if entry is None:
             return
+        if entry["drive"] not in _COMMEO_VERIFIED_DRIVES:
+            self._commeo_pending.pop(device_id, None)  # STOP etc.: done
+            return
+        if result_command is not entry["drive"]:
+            return  # late result of an earlier command — not ours
+        self._schedule_commeo_verify(
+            device_id, COMMEO_VERIFY_DELAY + COMMEO_RETRY_STAGGER * position
+        )
+
+    def _on_commeo_radio_busy(self) -> None:
+        """The gateway lost a telegram on air. It does not say for which device,
+        so verify every recently sent drive command early (not a blind re-send)."""
+        now = time.monotonic()
+        recent = [
+            id for id, entry in self._commeo_pending.items()
+            if entry["drive"] in _COMMEO_VERIFIED_DRIVES
+            and now - entry["last_sent"] <= COMMEO_VERIFY_BUSY_LOOKBACK
+        ]
+        if recent:
+            self._LOGGER.debug(
+                "Commeo radio line busy — verifying movement of devices %s", recent
+            )
+        for id in recent:
+            self._schedule_commeo_verify(id, COMMEO_VERIFY_BUSY_DELAY)
+
+    def _schedule_commeo_verify(self, device_id: int, delay: float) -> None:
+        """(Re)schedule the movement check; an earlier pending check wins."""
+        entry = self._commeo_pending.get(device_id)
+        if entry is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no running event loop (unit tests, etc.)
+        due = time.monotonic() + delay
+        item = self._commeo_verify_tasks.get(device_id)
+        if item is not None and not item[0].done():
+            if item[1] <= due:
+                return
+            item[0].cancel()
+        task = loop.create_task(self._commeo_verify(device_id, entry["command"], delay))
+        self._commeo_verify_tasks[device_id] = (task, due)
+
+        def _done(t, device_id=device_id):
+            item = self._commeo_verify_tasks.get(device_id)
+            if item is not None and item[0] is t:
+                self._commeo_verify_tasks.pop(device_id, None)
+        task.add_done_callback(_done)
+
+    async def _commeo_verify(self, device_id: int, command, delay: float) -> None:
+        try:
+            await asyncio.sleep(delay)
+            entry = self._commeo_pending.get(device_id)
+            if entry is None or entry["command"] is not command:
+                return
+            if entry["retry_pending"]:
+                return  # a re-send is already on its way
+            if not entry["moved"]:
+                # Fresh values from the gateway; the response is applied via
+                # updateCommeoDeviceValuesFromResponse -> _note_commeo_feedback.
+                try:
+                    await self.deviceGetValues(device_id)
+                except Exception:
+                    self._LOGGER.debug("Values query for device %s failed", device_id, exc_info=True)
+            if self._commeo_pending.get(device_id) is not entry or entry["retry_pending"]:
+                return  # superseded while waiting for the values
+            outcome = self._commeo_verify_outcome(device_id, entry)
+            if outcome == "stuck":
+                self._schedule_commeo_retry(
+                    device_id, 0, reason="did not move after a reported success"
+                )
+            else:
+                self._LOGGER.debug("Commeo device %s verified: %s", device_id, outcome)
+                self._commeo_pending.pop(device_id, None)
+        except asyncio.CancelledError:
+            pass
+
+    def _commeo_verify_outcome(self, device_id: int, entry) -> str:
+        if entry["moved"] or entry["gw_state"] in _COMMEO_MOVING:
+            return "moved"
+        current = self._commeo_raw_position(self.getDevice(device_id, SelveTypes.DEVICE))
+        if current is None or entry["start"] is None:
+            return "unknown"  # no reliable position: do not re-send blindly
+        if entry["target"] is not None and abs(current - entry["target"]) <= COMMEO_VERIFY_TOLERANCE:
+            return "target reached"
+        return "stuck"
+
+    def _schedule_commeo_retry(self, device_id: int, position: int,
+                               reason: str = "failed (gateway reported)") -> None:
+        """Re-send a Commeo command after a backoff, if still allowed."""
+        entry = self._commeo_pending.get(device_id)
+        if entry is None:
+            return
+        if entry.get("retry_pending"):
+            return  # one re-send at a time
         if time.monotonic() - entry["sent_at"] > COMMEO_RETRY_WINDOW:
             self._commeo_pending.pop(device_id, None)
             return
         if entry["attempts"] >= COMMEO_RETRY_MAX:
             self._LOGGER.warning(
-                "Commeo command for device %s failed, giving up after %d retries",
-                device_id, COMMEO_RETRY_MAX,
+                "Commeo command for device %s %s, giving up after %d retries",
+                device_id, reason, COMMEO_RETRY_MAX,
             )
             self._commeo_pending.pop(device_id, None)
             return
@@ -1793,14 +1990,20 @@ class Selve:
         except RuntimeError:
             return  # no running event loop (unit tests, etc.)
         entry["attempts"] += 1
+        entry["retry_pending"] = True
         attempt = entry["attempts"]
         self._LOGGER.info(
-            "Commeo command for device %s failed (gateway reported), retry %d/%d",
-            device_id, attempt, COMMEO_RETRY_MAX,
+            "Commeo command for device %s %s, retry %d/%d",
+            device_id, reason, attempt, COMMEO_RETRY_MAX,
         )
-        delay = COMMEO_RETRY_BASE_DELAY * attempt + COMMEO_RETRY_STAGGER * position
+        now = time.monotonic()
+        send_at = max(
+            now + COMMEO_RETRY_BASE_DELAY * attempt + COMMEO_RETRY_STAGGER * position,
+            self._commeo_retry_slot + COMMEO_RETRY_SPACING,
+        )
+        self._commeo_retry_slot = send_at
         task = loop.create_task(
-            self._commeo_retry(device_id, entry["command"], delay)
+            self._commeo_retry(device_id, entry["command"], send_at - now)
         )
         self._commeo_retry_tasks.add(task)
         task.add_done_callback(self._commeo_retry_tasks.discard)
@@ -1810,6 +2013,18 @@ class Selve:
         entry = self._commeo_pending.get(device_id)
         if entry is None or entry["command"] is not command:
             return  # superseded by a newer command or already succeeded
+        if not await self._await_duty_cycle():
+            self._LOGGER.warning(
+                "Commeo retry for device %s dropped: duty cycle still blocked", device_id
+            )
+            if self._commeo_pending.get(device_id) is entry:
+                self._commeo_pending.pop(device_id, None)
+            return
+        if self._commeo_pending.get(device_id) is not entry:
+            return  # superseded while waiting for airtime
+        entry["retry_pending"] = False
+        entry["last_sent"] = time.monotonic()
+        entry["gw_state"] = None
         try:
             await self.executeCommand(command)
         except Exception:
@@ -2092,6 +2307,7 @@ class Selve:
         return self._executed(response)
 
     async def moveGroupUp(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
+        self._cancel_commeo_pending_for_group(group)
         await self.executeCommandSyncWithResponse(CommandDriveUpGroup(group.id, type))
         ids = Util.b64bytes_to_bitobject(group.mask)
         for key, value in ids.items():
@@ -2099,6 +2315,7 @@ class Selve:
                 await self.updateCommeoDeviceValuesAsync(key)
 
     async def moveGroupDown(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
+        self._cancel_commeo_pending_for_group(group)
         await self.executeCommandSyncWithResponse(CommandDriveDownGroup(group.id, type))
         ids = Util.b64bytes_to_bitobject(group.mask)
         for key, value in ids.items():
@@ -2106,6 +2323,7 @@ class Selve:
                 await self.updateCommeoDeviceValuesAsync(key)
 
     async def stopGroup(self, group: SelveGroup, type=DeviceCommandType.MANUAL):
+        self._cancel_commeo_pending_for_group(group)
         await self.executeCommandSyncWithResponse(CommandStopGroup(group.id, type))
         ids = Util.b64bytes_to_bitobject(group.mask)
         for key, value in ids.items():

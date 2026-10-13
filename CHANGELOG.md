@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.20] - 2026-10-13
+
+### Fixed
+- **Commeo covers that the gateway confirms but that never move are now re-sent.** At sunrise, with 5–6 covers driven within a few seconds, the gateway listed a device in `successIds` of `command.result` and, separately, logged "COMMEO: Radio line is busy (01)!" — the telegram was lost on air and the cover stayed put (HA showed "opening" → "open" within a second, position unchanged). The 2.5.19 retry only reacts to `failedIds`, so it never fired. After a reported success, idempotent drive commands with a known target (DRIVEUP/DRIVEDOWN/DRIVEPOS) now stay tracked with the start position; ~4 s later (`COMMEO_VERIFY_DELAY`) the device values are queried and the command is re-sent through the existing retry path (max. 2 retries, 30 s window, duty-cycle wait) if the cover neither changed position nor reports a movement state. Only gateway-sourced values count as movement — the optimistic UP_ON/DOWN_ON the library sets itself does not. STEPUP/STEPDOWN are never re-sent (a missed short movement would step twice), nor are DRIVEPOS1/2 (the stored target is unknown, so "already there" cannot be told apart from "lost"). No re-send when the target is already reached (e.g. DRIVEUP on a fully open cover, DRIVEPOS within ±2 %) or the position is unknown.
+- A "Radio line is busy" log event does not name the device, so it now triggers this check early (1.5 s) for every drive command sent within the last 10 s — still verifying non-movement first instead of re-sending blindly.
+- Re-sends of different devices are spaced at least 1 s apart (`COMMEO_RETRY_SPACING`), so several stuck covers do not collide on air again. A newer command for the device (including STOP) or a group command containing it cancels pending checks and re-sends; a late result of an earlier, different command no longer confirms the current one. A pending retry also waits for the duty cycle before sending.
+
 ## [2.5.19] - 2026-10-09
 
 ### Fixed
